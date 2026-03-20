@@ -6,13 +6,13 @@
 // State
 let auth = null;
 let config = {
-    ebsUrl: '',
+    ebsUrl: 'https://twitch-ai.onrender.com',  // Default to your backend
     commands: { ask: true, roast: true, joke: true, fact: true },
     cooldown: 5,
     botPrefix: '🤖 Gemini',
     responseStyle: 'friendly'
 };
-let isConfigured = false;
+let isConfigured = true;  // Default to true, let API errors guide the user
 let isLoading = false;
 let cooldowns = {}; // Per-command cooldowns
 let messageCount = 0;
@@ -40,6 +40,8 @@ function loadBotConfig() {
                     window.Twitch.ext.configuration.broadcaster.content
                 );
                 
+                console.log('Loaded config from Twitch:', savedConfig);
+                
                 // Apply configuration (excluding sensitive data like API keys)
                 if (savedConfig.ebsUrl) config.ebsUrl = savedConfig.ebsUrl;
                 if (savedConfig.commands) config.commands = savedConfig.commands;
@@ -47,20 +49,20 @@ function loadBotConfig() {
                 if (savedConfig.botPrefix) config.botPrefix = savedConfig.botPrefix;
                 if (savedConfig.responseStyle) config.responseStyle = savedConfig.responseStyle;
                 
-                // Consider configured if we have the backend URL
-                // The backend will return an error if API key is missing
-                isConfigured = !!savedConfig.ebsUrl;
-                
-                console.log('Bot config loaded:', config);
-                console.log('isConfigured:', isConfigured, 'hasApiKey:', savedConfig.hasApiKey);
+                isConfigured = true;
                 updateUI();
                 
             } catch (e) {
                 console.error('Failed to parse config:', e);
-                showNotConfigured();
+                // Still allow usage with default config
+                isConfigured = true;
+                updateUI();
             }
         } else {
-            showNotConfigured();
+            console.log('No broadcaster config found, using defaults');
+            // Still allow usage with default config
+            isConfigured = true;
+            updateUI();
         }
     });
 }
