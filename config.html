@@ -225,27 +225,33 @@
     <div id="status" class="status"></div>
     
     <div class="config-section" style="margin-top: 30px; border-color: #9147ff;">
-        <h2>💬 Twitch Chat Bot (Optional)</h2>
+        <h2>💬 Twitch Chat Bot</h2>
         <p style="font-size: 14px; color: #adadb8; margin-bottom: 15px;">
-            Run a bot that responds to commands directly in your Twitch chat. 
-            This runs on your computer (not in the browser extension).
+            Enable a bot that responds to commands directly in your Twitch chat.
+            The bot runs on our server 24/7 - no download needed!
         </p>
+        
+        <div class="checkbox-group">
+            <input type="checkbox" id="enableBot">
+            <label>Enable Chat Bot for my channel</label>
+        </div>
         
         <label>Twitch Bot OAuth Token:</label>
         <input type="password" id="twitchToken" placeholder="oauth:your_token_here">
         <small>Get from <a href="https://twitchtokengenerator.com/" target="_blank">twitchtokengenerator.com</a> - select "Bot Chat Token"</small>
         
-        <label>Channel Name:</label>
-        <input type="text" id="twitchChannel" placeholder="your_channel_name">
-        <small>Your Twitch username (without the # symbol)</small>
-        
         <label>Command Prefix:</label>
         <input type="text" id="botCmdPrefix" value="!" maxlength="3" style="width: 60px;">
         
-        <button id="downloadEnvBtn" style="background-color: #22c55e; margin-top: 15px;">📥 Download .env File</button>
-        <small style="display: block; margin-top: 10px;">
-            After downloading, place the .env file in your bot folder and run: <code style="background: #1f1f23; padding: 2px 6px; border-radius: 3px;">python bot.py</code>
-        </small>
+        <button id="saveBotBtn" style="background-color: #22c55e; margin-top: 15px;">🤖 Save & Enable Chat Bot</button>
+        <div id="botStatus" class="status"></div>
+        
+        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #2f2f35;">
+            <small style="color: #adadb8;">
+                <strong>Alternative:</strong> Download config and run locally
+            </small>
+            <button id="downloadEnvBtn" style="background-color: #2f2f35; margin-top: 10px; font-size: 14px; padding: 8px 16px;">📥 Download .env File</button>
+        </div>
     </div>
     
     <script src="config.js"></script>

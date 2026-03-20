@@ -344,7 +344,7 @@ def status():
         'status': 'online',
         'service': 'Gemini Stream Assistant',
         'version': '1.0.0',
-        'bot_running': bot_thread is not None and bot_thread.is_alive() if bot_thread else False
+        'active_bots': len(active_bots)
     })
 
 
@@ -354,8 +354,8 @@ def root():
     return jsonify({
         'status': 'online',
         'service': 'Gemini Stream Assistant',
-        'endpoints': ['/api/status', '/api/health', '/api/config', '/api/gemini'],
-        'bot_running': bot_thread is not None and bot_thread.is_alive() if bot_thread else False
+        'endpoints': ['/api/status', '/api/health', '/api/config', '/api/gemini', '/api/bot/config'],
+        'active_bots': len(active_bots)
     })
 
 
@@ -370,45 +370,107 @@ def server_error(e):
     return jsonify({'error': 'Internal server error'}), 500
 
 
-# ============== TWITCH CHAT BOT ==============
+# ============== MULTI-CHANNEL TWITCH CHAT BOT ==============
 import threading
 import asyncio
 from datetime import timedelta
 
-bot_thread = None
-bot_instance = None
+# Store bot configs per channel: { channel_id: { twitchToken, geminiApiKey, botPrefix, cooldown, enabled } }
+bot_configs = {}
 
-# Bot configuration from environment
-BOT_TWITCH_TOKEN = os.environ.get('TWITCH_TOKEN', '')
-BOT_TWITCH_CHANNEL = os.environ.get('TWITCH_CHANNEL', '')
-BOT_GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-BOT_PREFIX = os.environ.get('BOT_PREFIX', '!')
-BOT_COOLDOWN_SECONDS = int(os.environ.get('COOLDOWN_SECONDS', '5'))
+# Active bot instances: { channel_id: bot_thread }
+active_bots = {}
 
-# Cooldown tracking for bot
+# Cooldown tracking per channel: { "channel_id:user_id": datetime }
 bot_user_cooldowns = {}
 
-def bot_check_cooldown(user_id: str) -> bool:
+
+@app.route('/api/bot/config', methods=['POST'])
+@verify_twitch_jwt
+@require_broadcaster
+def save_bot_config():
+    """Save bot configuration for a channel (broadcaster only)."""
+    try:
+        data = request.json
+        channel_id = request.channel_id
+        
+        enabled = data.get('enabled', False)
+        twitch_token = data.get('twitchToken', '')
+        gemini_api_key = data.get('geminiApiKey', '')
+        bot_prefix = data.get('botPrefix', '!')
+        cooldown = data.get('cooldown', 5)
+        
+        if enabled:
+            if not twitch_token:
+                return jsonify({'error': 'Twitch OAuth token is required'}), 400
+            if not gemini_api_key:
+                return jsonify({'error': 'Gemini API key is required'}), 400
+        
+        # Store bot config
+        bot_configs[channel_id] = {
+            'enabled': enabled,
+            'twitchToken': twitch_token,
+            'geminiApiKey': gemini_api_key,
+            'botPrefix': bot_prefix,
+            'cooldown': cooldown
+        }
+        
+        logger.info(f"Bot config saved for channel {channel_id}, enabled={enabled}")
+        
+        # Start or stop bot based on config
+        if enabled:
+            start_channel_bot(channel_id)
+        else:
+            stop_channel_bot(channel_id)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Bot enabled!' if enabled else 'Bot disabled',
+            'bot_running': channel_id in active_bots
+        })
+        
+    except Exception as e:
+        logger.error(f"Error saving bot config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/bot/status', methods=['GET'])
+@verify_twitch_jwt
+def get_bot_status():
+    """Get bot status for a channel."""
+    channel_id = request.channel_id
+    config = bot_configs.get(channel_id, {})
+    
+    return jsonify({
+        'configured': bool(config),
+        'enabled': config.get('enabled', False),
+        'running': channel_id in active_bots
+    })
+
+
+def bot_check_cooldown(channel_id: str, user_id: str, cooldown_seconds: int) -> bool:
     """Check if user is on cooldown. Returns True if allowed to use command."""
+    key = f"{channel_id}:{user_id}"
     now = datetime.now()
-    if user_id in bot_user_cooldowns:
-        if now < bot_user_cooldowns[user_id]:
+    if key in bot_user_cooldowns:
+        if now < bot_user_cooldowns[key]:
             return False
-    bot_user_cooldowns[user_id] = now + timedelta(seconds=BOT_COOLDOWN_SECONDS)
+    bot_user_cooldowns[key] = now + timedelta(seconds=cooldown_seconds)
     return True
 
-def bot_get_remaining_cooldown(user_id: str) -> int:
+
+def bot_get_remaining_cooldown(channel_id: str, user_id: str) -> int:
     """Get remaining cooldown seconds for a user."""
-    if user_id not in bot_user_cooldowns:
+    key = f"{channel_id}:{user_id}"
+    if key not in bot_user_cooldowns:
         return 0
-    remaining = (bot_user_cooldowns[user_id] - datetime.now()).total_seconds()
+    remaining = (bot_user_cooldowns[key] - datetime.now()).total_seconds()
     return max(0, int(remaining))
 
-async def bot_generate_response(prompt: str, command: str) -> str:
+
+async def bot_generate_response(gemini_api_key: str, prompt: str, command: str) -> str:
     """Generate a response using Gemini AI for the bot."""
-    style_prompts = {
-        'friendly': "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language. You can use emotes like :) or emojis.",
-    }
+    style_prompt = "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language. You can use emotes like :) or emojis."
     
     command_prompts = {
         'ask': f"Answer this concisely: {prompt}",
@@ -417,10 +479,10 @@ async def bot_generate_response(prompt: str, command: str) -> str:
         'fact': "Share one interesting, surprising fact. Make it memorable!"
     }
     
-    full_prompt = f"{style_prompts['friendly']}\n\n{command_prompts.get(command, command_prompts['ask'])}"
+    full_prompt = f"{style_prompt}\n\n{command_prompts.get(command, command_prompts['ask'])}"
     
     try:
-        genai.configure(api_key=BOT_GEMINI_API_KEY)
+        genai.configure(api_key=gemini_api_key)
         model = genai.GenerativeModel('gemini-2.0-flash')
         
         response = await asyncio.to_thread(
@@ -450,23 +512,37 @@ async def bot_generate_response(prompt: str, command: str) -> str:
         return "Oops, my brain glitched! Try again? 🤖"
 
 
-def run_bot():
-    """Run the Twitch bot in a separate thread."""
+def run_channel_bot(channel_id: str, config: dict):
+    """Run a bot for a specific channel."""
     try:
         from twitchio.ext import commands as twitch_commands
         
-        class GeminiBot(twitch_commands.Bot):
+        twitch_token = config['twitchToken']
+        gemini_api_key = config['geminiApiKey']
+        bot_prefix = config.get('botPrefix', '!')
+        cooldown = config.get('cooldown', 5)
+        
+        # We need to get the channel name from the token
+        # For now, we'll use a simple approach - the streamer uses their own token
+        # which will connect to their channel
+        
+        class ChannelBot(twitch_commands.Bot):
             def __init__(self):
                 super().__init__(
-                    token=BOT_TWITCH_TOKEN,
-                    prefix=BOT_PREFIX,
-                    initial_channels=[BOT_TWITCH_CHANNEL]
+                    token=twitch_token,
+                    prefix=bot_prefix,
+                    initial_channels=[]  # Will join on ready using nick
                 )
-                logger.info(f"Bot initialized for channel: {BOT_TWITCH_CHANNEL}")
+                self.channel_id = channel_id
+                self.gemini_key = gemini_api_key
+                self.cooldown = cooldown
+                self.target_channel = None
             
             async def event_ready(self):
-                logger.info(f'Bot ready! Logged in as: {self.nick}')
-                logger.info(f'Connected to: {BOT_TWITCH_CHANNEL}')
+                # Join the channel that matches the bot's username
+                self.target_channel = self.nick.lower()
+                await self.join_channels([self.target_channel])
+                logger.info(f'Bot ready for channel {self.target_channel} (ID: {self.channel_id})')
             
             async def event_message(self, message):
                 if message.echo:
@@ -475,75 +551,82 @@ def run_bot():
             
             @twitch_commands.command(name='help')
             async def cmd_help(self, ctx):
-                await ctx.reply(f"🤖 Commands: {BOT_PREFIX}ask [question] | {BOT_PREFIX}joke | {BOT_PREFIX}fact | {BOT_PREFIX}roast [@user]")
+                await ctx.reply(f"🤖 Commands: {bot_prefix}ask [question] | {bot_prefix}joke | {bot_prefix}fact | {bot_prefix}roast [@user]")
             
             @twitch_commands.command(name='ask')
             async def cmd_ask(self, ctx, *, question: str = None):
                 if not question:
-                    await ctx.reply(f"Ask me something! Example: {BOT_PREFIX}ask What's the meaning of life?")
+                    await ctx.reply(f"Ask me something! Example: {bot_prefix}ask What's the meaning of life?")
                     return
-                if not bot_check_cooldown(ctx.author.id):
-                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
-                response = await bot_generate_response(question, 'ask')
+                response = await bot_generate_response(self.gemini_key, question, 'ask')
                 await ctx.reply(response)
             
             @twitch_commands.command(name='joke')
             async def cmd_joke(self, ctx):
-                if not bot_check_cooldown(ctx.author.id):
-                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
-                response = await bot_generate_response('', 'joke')
+                response = await bot_generate_response(self.gemini_key, '', 'joke')
                 await ctx.reply(f"😂 {response}")
             
             @twitch_commands.command(name='fact')
             async def cmd_fact(self, ctx):
-                if not bot_check_cooldown(ctx.author.id):
-                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
-                response = await bot_generate_response('', 'fact')
+                response = await bot_generate_response(self.gemini_key, '', 'fact')
                 await ctx.reply(f"📊 {response}")
             
             @twitch_commands.command(name='roast')
             async def cmd_roast(self, ctx, *, target: str = None):
-                if not bot_check_cooldown(ctx.author.id):
-                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
                 if not target:
                     target = ctx.author.name
                 target = target.lstrip('@')
-                response = await bot_generate_response(target, 'roast')
+                response = await bot_generate_response(self.gemini_key, target, 'roast')
                 await ctx.reply(f"🔥 @{target} {response}")
         
         # Run the bot
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        global bot_instance
-        bot_instance = GeminiBot()
-        loop.run_until_complete(bot_instance.start())
+        bot = ChannelBot()
+        loop.run_until_complete(bot.start())
         
     except Exception as e:
-        logger.error(f"Bot error: {e}")
+        logger.error(f"Bot error for channel {channel_id}: {e}")
+        # Remove from active bots on error
+        if channel_id in active_bots:
+            del active_bots[channel_id]
 
 
-def start_bot_thread():
-    """Start the bot in a background thread if configured."""
-    global bot_thread
+def start_channel_bot(channel_id: str):
+    """Start a bot for a specific channel."""
+    # Stop existing bot first
+    stop_channel_bot(channel_id)
     
-    if not BOT_TWITCH_TOKEN or not BOT_TWITCH_CHANNEL or not BOT_GEMINI_API_KEY:
-        logger.info("Bot not configured - skipping (set TWITCH_TOKEN, TWITCH_CHANNEL, GEMINI_API_KEY)")
+    config = bot_configs.get(channel_id)
+    if not config or not config.get('enabled'):
         return
     
-    logger.info("Starting Twitch bot in background thread...")
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
-    logger.info("Bot thread started!")
+    logger.info(f"Starting bot for channel {channel_id}...")
+    thread = threading.Thread(target=run_channel_bot, args=(channel_id, config), daemon=True)
+    thread.start()
+    active_bots[channel_id] = thread
+    logger.info(f"Bot thread started for channel {channel_id}")
 
 
-# Start bot when app loads (but not in gunicorn workers)
-if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not os.environ.get('WERKZEUG_SERVER_FD'):
-    start_bot_thread()
+def stop_channel_bot(channel_id: str):
+    """Stop a bot for a specific channel."""
+    if channel_id in active_bots:
+        logger.info(f"Stopping bot for channel {channel_id}")
+        # Thread will terminate when bot closes
+        del active_bots[channel_id]
 
 
 if __name__ == '__main__':

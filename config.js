@@ -236,13 +236,103 @@ document.getElementById('temperature').addEventListener('input', function() {
     document.getElementById('tempValue').innerText = this.value;
 });
 
-// Download .env file for chat bot
+// Show bot status message
+function showBotStatus(message, type) {
+    const statusDiv = document.getElementById('botStatus');
+    statusDiv.className = 'status ' + type;
+    statusDiv.innerHTML = message;
+    
+    if (type === 'success') {
+        setTimeout(() => {
+            statusDiv.className = 'status';
+        }, 5000);
+    }
+}
+
+// Save & Enable Chat Bot
+document.getElementById('saveBotBtn').addEventListener('click', async function() {
+    const btn = document.getElementById('saveBotBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Saving...';
+    
+    try {
+        const twitchToken = document.getElementById('twitchToken').value.trim();
+        const apiKey = document.getElementById('apiKey').value.trim();
+        const botPrefix = document.getElementById('botCmdPrefix').value.trim() || '!';
+        const cooldown = document.getElementById('cooldown').value || '5';
+        const enableBot = document.getElementById('enableBot').checked;
+        const ebsUrl = document.getElementById('ebsUrl').value.trim();
+        
+        if (!ebsUrl) {
+            throw new Error('Please enter the Backend Server URL first');
+        }
+        
+        if (enableBot) {
+            if (!twitchToken) {
+                throw new Error('Please enter your Twitch Bot OAuth Token');
+            }
+            if (!apiKey) {
+                throw new Error('Please enter your Gemini API key (in the AI Configuration section above)');
+            }
+        }
+        
+        // Format token properly
+        let token = twitchToken;
+        if (token && !token.startsWith('oauth:')) {
+            token = 'oauth:' + token;
+        }
+        
+        const response = await fetch(ebsUrl + '/api/bot/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + auth.token
+            },
+            body: JSON.stringify({
+                channelId: auth.channelId,
+                enabled: enableBot,
+                twitchToken: token,
+                geminiApiKey: apiKey,
+                botPrefix: botPrefix,
+                cooldown: parseInt(cooldown)
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to save bot configuration');
+        }
+        
+        const data = await response.json();
+        
+        if (enableBot) {
+            showBotStatus('✅ Bot enabled! It will join your channel shortly.', 'success');
+        } else {
+            showBotStatus('✅ Bot disabled for your channel.', 'success');
+        }
+        
+        // Clear token field after save
+        document.getElementById('twitchToken').value = '';
+        document.getElementById('twitchToken').placeholder = '••••••••••••••••••• (token saved)';
+        
+    } catch (error) {
+        console.error('Bot config error:', error);
+        showBotStatus('❌ ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '🤖 Save & Enable Chat Bot';
+    }
+});
+
+// Download .env file for local bot
 document.getElementById('downloadEnvBtn').addEventListener('click', function() {
     const twitchToken = document.getElementById('twitchToken').value.trim();
-    const twitchChannel = document.getElementById('twitchChannel').value.trim();
     const apiKey = document.getElementById('apiKey').value.trim();
     const botPrefix = document.getElementById('botCmdPrefix').value.trim() || '!';
     const cooldown = document.getElementById('cooldown').value || '5';
+    
+    // We need to ask for channel name since we can't easily get it from Twitch API
+    const twitchChannel = prompt('Enter your Twitch channel name (username):');
     
     // Validate required fields
     if (!twitchToken) {
@@ -250,7 +340,7 @@ document.getElementById('downloadEnvBtn').addEventListener('click', function() {
         return;
     }
     if (!twitchChannel) {
-        showStatus('❌ Please enter your Twitch channel name', 'error');
+        showStatus('❌ Channel name is required', 'error');
         return;
     }
     if (!apiKey) {
