@@ -343,7 +343,8 @@ def status():
     return jsonify({
         'status': 'online',
         'service': 'Gemini Stream Assistant',
-        'version': '1.0.0'
+        'version': '1.0.0',
+        'bot_running': bot_thread is not None and bot_thread.is_alive() if bot_thread else False
     })
 
 
@@ -353,7 +354,8 @@ def root():
     return jsonify({
         'status': 'online',
         'service': 'Gemini Stream Assistant',
-        'endpoints': ['/api/status', '/api/health', '/api/config', '/api/gemini']
+        'endpoints': ['/api/status', '/api/health', '/api/config', '/api/gemini'],
+        'bot_running': bot_thread is not None and bot_thread.is_alive() if bot_thread else False
     })
 
 
@@ -366,6 +368,182 @@ def not_found(e):
 @app.errorhandler(500)
 def server_error(e):
     return jsonify({'error': 'Internal server error'}), 500
+
+
+# ============== TWITCH CHAT BOT ==============
+import threading
+import asyncio
+from datetime import timedelta
+
+bot_thread = None
+bot_instance = None
+
+# Bot configuration from environment
+BOT_TWITCH_TOKEN = os.environ.get('TWITCH_TOKEN', '')
+BOT_TWITCH_CHANNEL = os.environ.get('TWITCH_CHANNEL', '')
+BOT_GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+BOT_PREFIX = os.environ.get('BOT_PREFIX', '!')
+BOT_COOLDOWN_SECONDS = int(os.environ.get('COOLDOWN_SECONDS', '5'))
+
+# Cooldown tracking for bot
+bot_user_cooldowns = {}
+
+def bot_check_cooldown(user_id: str) -> bool:
+    """Check if user is on cooldown. Returns True if allowed to use command."""
+    now = datetime.now()
+    if user_id in bot_user_cooldowns:
+        if now < bot_user_cooldowns[user_id]:
+            return False
+    bot_user_cooldowns[user_id] = now + timedelta(seconds=BOT_COOLDOWN_SECONDS)
+    return True
+
+def bot_get_remaining_cooldown(user_id: str) -> int:
+    """Get remaining cooldown seconds for a user."""
+    if user_id not in bot_user_cooldowns:
+        return 0
+    remaining = (bot_user_cooldowns[user_id] - datetime.now()).total_seconds()
+    return max(0, int(remaining))
+
+async def bot_generate_response(prompt: str, command: str) -> str:
+    """Generate a response using Gemini AI for the bot."""
+    style_prompts = {
+        'friendly': "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language. You can use emotes like :) or emojis.",
+    }
+    
+    command_prompts = {
+        'ask': f"Answer this concisely: {prompt}",
+        'roast': f"Give a playful, light-hearted roast about '{prompt}'. Keep it fun, NOT mean. Make people laugh!",
+        'joke': "Tell a short, funny joke. Gaming/streaming related is great, but any clean joke works.",
+        'fact': "Share one interesting, surprising fact. Make it memorable!"
+    }
+    
+    full_prompt = f"{style_prompts['friendly']}\n\n{command_prompts.get(command, command_prompts['ask'])}"
+    
+    try:
+        genai.configure(api_key=BOT_GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        response = await asyncio.to_thread(
+            model.generate_content,
+            full_prompt,
+            generation_config=genai.GenerationConfig(
+                max_output_tokens=200,
+                temperature=0.8
+            )
+        )
+        
+        reply = response.text.strip()
+        
+        # Truncate if too long
+        if len(reply) > 450:
+            truncated = reply[:450]
+            last_sentence = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
+            if last_sentence > 225:
+                reply = truncated[:last_sentence + 1]
+            else:
+                reply = truncated.rsplit(' ', 1)[0] + '...'
+        
+        return reply
+        
+    except Exception as e:
+        logger.error(f"Bot Gemini error: {e}")
+        return "Oops, my brain glitched! Try again? 🤖"
+
+
+def run_bot():
+    """Run the Twitch bot in a separate thread."""
+    try:
+        from twitchio.ext import commands as twitch_commands
+        
+        class GeminiBot(twitch_commands.Bot):
+            def __init__(self):
+                super().__init__(
+                    token=BOT_TWITCH_TOKEN,
+                    prefix=BOT_PREFIX,
+                    initial_channels=[BOT_TWITCH_CHANNEL]
+                )
+                logger.info(f"Bot initialized for channel: {BOT_TWITCH_CHANNEL}")
+            
+            async def event_ready(self):
+                logger.info(f'Bot ready! Logged in as: {self.nick}')
+                logger.info(f'Connected to: {BOT_TWITCH_CHANNEL}')
+            
+            async def event_message(self, message):
+                if message.echo:
+                    return
+                await self.handle_commands(message)
+            
+            @twitch_commands.command(name='help')
+            async def cmd_help(self, ctx):
+                await ctx.reply(f"🤖 Commands: {BOT_PREFIX}ask [question] | {BOT_PREFIX}joke | {BOT_PREFIX}fact | {BOT_PREFIX}roast [@user]")
+            
+            @twitch_commands.command(name='ask')
+            async def cmd_ask(self, ctx, *, question: str = None):
+                if not question:
+                    await ctx.reply(f"Ask me something! Example: {BOT_PREFIX}ask What's the meaning of life?")
+                    return
+                if not bot_check_cooldown(ctx.author.id):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                    return
+                response = await bot_generate_response(question, 'ask')
+                await ctx.reply(response)
+            
+            @twitch_commands.command(name='joke')
+            async def cmd_joke(self, ctx):
+                if not bot_check_cooldown(ctx.author.id):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                    return
+                response = await bot_generate_response('', 'joke')
+                await ctx.reply(f"😂 {response}")
+            
+            @twitch_commands.command(name='fact')
+            async def cmd_fact(self, ctx):
+                if not bot_check_cooldown(ctx.author.id):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                    return
+                response = await bot_generate_response('', 'fact')
+                await ctx.reply(f"📊 {response}")
+            
+            @twitch_commands.command(name='roast')
+            async def cmd_roast(self, ctx, *, target: str = None):
+                if not bot_check_cooldown(ctx.author.id):
+                    await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(ctx.author.id)}s ⏳")
+                    return
+                if not target:
+                    target = ctx.author.name
+                target = target.lstrip('@')
+                response = await bot_generate_response(target, 'roast')
+                await ctx.reply(f"🔥 @{target} {response}")
+        
+        # Run the bot
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        global bot_instance
+        bot_instance = GeminiBot()
+        loop.run_until_complete(bot_instance.start())
+        
+    except Exception as e:
+        logger.error(f"Bot error: {e}")
+
+
+def start_bot_thread():
+    """Start the bot in a background thread if configured."""
+    global bot_thread
+    
+    if not BOT_TWITCH_TOKEN or not BOT_TWITCH_CHANNEL or not BOT_GEMINI_API_KEY:
+        logger.info("Bot not configured - skipping (set TWITCH_TOKEN, TWITCH_CHANNEL, GEMINI_API_KEY)")
+        return
+    
+    logger.info("Starting Twitch bot in background thread...")
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    logger.info("Bot thread started!")
+
+
+# Start bot when app loads (but not in gunicorn workers)
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not os.environ.get('WERKZEUG_SERVER_FD'):
+    start_bot_thread()
 
 
 if __name__ == '__main__':

@@ -2,12 +2,12 @@
 # https://render.com/docs/blueprint-spec
 
 services:
-  # Backend API for the Twitch Extension
+  # Backend API for the Twitch Extension + Chat Bot (combined)
   - type: web
     name: gemini-stream-assistant
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --preload
     envVars:
       - key: TWITCH_EXTENSION_SECRET
         sync: false  # Set manually in Render dashboard
@@ -15,17 +15,9 @@ services:
         sync: false  # Set manually in Render dashboard
       - key: FLASK_DEBUG
         value: "false"
-    healthCheckPath: /api/status
-
-  # Twitch Chat Bot (runs 24/7)
-  - type: worker
-    name: gemini-twitch-bot
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
-    envVars:
+      # Bot configuration (optional - if not set, bot won't run)
       - key: TWITCH_TOKEN
-        sync: false  # oauth:xxx - Set manually in Render dashboard
+        sync: false  # oauth:xxx - Set manually
       - key: TWITCH_CHANNEL
         sync: false  # Your channel name
       - key: GEMINI_API_KEY
@@ -34,3 +26,4 @@ services:
         value: "!"
       - key: COOLDOWN_SECONDS
         value: "5"
+    healthCheckPath: /api/status
