@@ -57,7 +57,7 @@ if not GEMINI_API_KEY:
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash')
+model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
 
 # Cooldown tracking
 user_cooldowns = {}
@@ -170,57 +170,57 @@ class GeminiBot(commands.Bot):
             f"{BOT_PREFIX}fact | "
             f"{BOT_PREFIX}roast [@user]"
         )
-        await ctx.send(help_text)
+        await ctx.reply(help_text)
     
     @commands.command(name='ask')
     async def cmd_ask(self, ctx: commands.Context, *, question: str = None):
         """Ask the AI a question."""
         if not question:
-            await ctx.send(f"@{ctx.author.name} Ask me something! Example: {BOT_PREFIX}ask What's the meaning of life?")
+            await ctx.reply(f"Ask me something! Example: {BOT_PREFIX}ask What's the meaning of life?")
             return
         
         if not check_cooldown(ctx.author.id):
             remaining = get_remaining_cooldown(ctx.author.id)
-            await ctx.send(f"@{ctx.author.name} Cooldown! Wait {remaining}s ⏳")
+            await ctx.reply(f"Cooldown! Wait {remaining}s ⏳")
             return
         
         logger.info(f"[ASK] {ctx.author.name}: {question}")
         
         response = await generate_response(question, 'ask')
-        await ctx.send(f"@{ctx.author.name} {response}")
+        await ctx.reply(response)
     
     @commands.command(name='joke')
     async def cmd_joke(self, ctx: commands.Context):
         """Get a random joke."""
         if not check_cooldown(ctx.author.id):
             remaining = get_remaining_cooldown(ctx.author.id)
-            await ctx.send(f"@{ctx.author.name} Cooldown! Wait {remaining}s ⏳")
+            await ctx.reply(f"Cooldown! Wait {remaining}s ⏳")
             return
         
         logger.info(f"[JOKE] {ctx.author.name}")
         
         response = await generate_response('', 'joke')
-        await ctx.send(f"😂 {response}")
+        await ctx.reply(f"😂 {response}")
     
     @commands.command(name='fact')
     async def cmd_fact(self, ctx: commands.Context):
         """Get an interesting fact."""
         if not check_cooldown(ctx.author.id):
             remaining = get_remaining_cooldown(ctx.author.id)
-            await ctx.send(f"@{ctx.author.name} Cooldown! Wait {remaining}s ⏳")
+            await ctx.reply(f"Cooldown! Wait {remaining}s ⏳")
             return
         
         logger.info(f"[FACT] {ctx.author.name}")
         
         response = await generate_response('', 'fact')
-        await ctx.send(f"📊 {response}")
+        await ctx.reply(f"📊 {response}")
     
     @commands.command(name='roast')
     async def cmd_roast(self, ctx: commands.Context, *, target: str = None):
         """Get a playful roast."""
         if not check_cooldown(ctx.author.id):
             remaining = get_remaining_cooldown(ctx.author.id)
-            await ctx.send(f"@{ctx.author.name} Cooldown! Wait {remaining}s ⏳")
+            await ctx.reply(f"Cooldown! Wait {remaining}s ⏳")
             return
         
         # Default to roasting the person who asked
@@ -233,7 +233,7 @@ class GeminiBot(commands.Bot):
         logger.info(f"[ROAST] {ctx.author.name} -> {target}")
         
         response = await generate_response(target, 'roast')
-        await ctx.send(f"🔥 @{target} {response}")
+        await ctx.reply(f"🔥 @{target} {response}")
 
 
 def main():
