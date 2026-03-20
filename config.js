@@ -133,15 +133,21 @@ document.getElementById('saveBtn').addEventListener('click', async function() {
                 // Mark that API key is set (without storing the key itself)
                 config.hasApiKey = true;
             } catch (fetchError) {
-                // Check if it's a CSP/network error
-                if (fetchError.message.includes('fetch') || fetchError.message.includes('CSP') || fetchError.message.includes('network')) {
-                    throw new Error(
-                        'Cannot connect to backend. Make sure:\n' +
-                        '1. URL "' + config.ebsUrl + '" is added to Extension Allowlist in Twitch Dev Console\n' +
-                        '2. Your backend is running and accessible'
-                    );
-                }
-                throw fetchError;
+                console.error('Backend save failed:', fetchError);
+                // Still save to Twitch config, just without hasApiKey
+                // The panel will try to use the backend and get a proper error
+                config.hasApiKey = false;
+                
+                // Save config to Twitch anyway so panel knows the URL
+                const configString = JSON.stringify(config);
+                window.Twitch.ext.configuration.set('broadcaster', '1.0', configString);
+                
+                showStatus(
+                    '⚠️ Settings saved to Twitch, but backend connection failed.\n' +
+                    'Add "' + config.ebsUrl + '" to Extension Allowlist in Twitch Dev Console, then try again.',
+                    'warning'
+                );
+                return; // Exit early
             }
         }
         

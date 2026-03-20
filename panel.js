@@ -47,9 +47,12 @@ function loadBotConfig() {
                 if (savedConfig.botPrefix) config.botPrefix = savedConfig.botPrefix;
                 if (savedConfig.responseStyle) config.responseStyle = savedConfig.responseStyle;
                 
-                isConfigured = !!(savedConfig.ebsUrl && savedConfig.hasApiKey);
+                // Consider configured if we have the backend URL
+                // The backend will return an error if API key is missing
+                isConfigured = !!savedConfig.ebsUrl;
                 
                 console.log('Bot config loaded:', config);
+                console.log('isConfigured:', isConfigured, 'hasApiKey:', savedConfig.hasApiKey);
                 updateUI();
                 
             } catch (e) {
