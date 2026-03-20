@@ -483,7 +483,7 @@ async def bot_generate_response(gemini_api_key: str, prompt: str, command: str) 
     
     try:
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         
         response = await asyncio.to_thread(
             model.generate_content,
