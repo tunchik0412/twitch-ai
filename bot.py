@@ -57,7 +57,7 @@ if not GEMINI_API_KEY:
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Cooldown tracking
 user_cooldowns = {}

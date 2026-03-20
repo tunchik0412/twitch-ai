@@ -8,5 +8,6 @@ google-generativeai>=0.3.0
 pyjwt>=2.8.0
 
 # For Twitch Chat Bot (bot.py)
-twitchio>=2.8.0
+# Pin to 2.6.0 - newer versions require client_id/client_secret
+twitchio==2.6.0
 python-dotenv>=1.0.0
