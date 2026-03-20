@@ -1,0 +1,31 @@
+{
+  "id": "your-extension-id",
+  "name": "Gemini Stream Assistant",
+  "description": "AI-powered chat assistant for your Twitch stream. Viewers can ask questions, request jokes, facts, and more!",
+  "version": "1.0.0",
+  "author_name": "Your Name",
+  "request_identity_link": false,
+  "requires_broadcaster_abilities": false,
+  "views": {
+    "panel": {
+      "viewer_url": "panel.html",
+      "height": 400,
+      "can_link_external_content": false
+    },
+    "config": {
+      "viewer_url": "config.html",
+      "can_link_external_content": true
+    },
+    "live_config": {
+      "viewer_url": "config.html",
+      "can_link_external_content": true
+    }
+  },
+  "icon_urls": {
+    "100x100": "icon_100x100.png"
+  },
+  "whitelisted_config_urls": [],
+  "whitelisted_panel_urls": [],
+  "config_version": "1.0",
+  "bits_enabled": false
+}

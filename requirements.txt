@@ -1,0 +1,8 @@
+# Gemini Stream Assistant - Backend Dependencies
+# For deployment to Render.com
+
+flask>=2.3.0
+flask-cors>=4.0.0
+gunicorn>=21.0.0
+google-generativeai>=0.3.0
+pyjwt>=2.8.0

@@ -1,0 +1,17 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: gemini-stream-assistant
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: TWITCH_EXTENSION_SECRET
+        sync: false  # Set manually in Render dashboard
+      - key: TWITCH_CLIENT_ID
+        sync: false  # Set manually in Render dashboard
+      - key: FLASK_DEBUG
+        value: "false"
+    healthCheckPath: /api/status

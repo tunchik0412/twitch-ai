@@ -1,8 +1,15 @@
-let twitchExt = null;
+/**
+ * Gemini Stream Assistant - Configuration Page JavaScript
+ * Handles broadcaster configuration with secure API key storage
+ */
+
+let auth = null;
+let ebsUrl = '';
 
 // Wait for Twitch extension to be ready
-window.Twitch.ext.onAuthorized(function(auth) {
-    console.log('Extension authorized for channel:', auth.channelId);
+window.Twitch.ext.onAuthorized(function(authData) {
+    console.log('Extension authorized for channel:', authData.channelId);
+    auth = authData;
     loadConfiguration();
 });
 
@@ -10,10 +17,58 @@ window.Twitch.ext.onContext(function(context) {
     console.log('Context:', context);
 });
 
-// Save configuration
-document.getElementById('saveBtn').addEventListener('click', function() {
-    const config = {
-        apiKey: document.getElementById('apiKey').value,
+// Load existing configuration from Twitch Configuration Service
+function loadConfiguration() {
+    window.Twitch.ext.configuration.onChanged(function() {
+        if (window.Twitch.ext.configuration.broadcaster &&
+            window.Twitch.ext.configuration.broadcaster.content) {
+            try {
+                const config = JSON.parse(
+                    window.Twitch.ext.configuration.broadcaster.content
+                );
+                applyConfiguration(config);
+                console.log('Configuration loaded successfully');
+            } catch (e) {
+                console.error('Failed to parse config:', e);
+                showStatus('⚠️ No existing configuration found. Please configure and save.', 'warning');
+            }
+        }
+    });
+}
+
+// Apply loaded config to UI elements
+function applyConfiguration(config) {
+    if (config.ebsUrl) {
+        document.getElementById('ebsUrl').value = config.ebsUrl;
+        ebsUrl = config.ebsUrl;
+    }
+    // Note: API key is stored on the backend, not in Twitch config
+    // We show a placeholder to indicate it's set
+    if (config.hasApiKey) {
+        document.getElementById('apiKey').placeholder = '••••••••••••••••••••••••••• (key saved)';
+    }
+    if (config.model) document.getElementById('model').value = config.model;
+    if (config.temperature !== undefined) {
+        document.getElementById('temperature').value = config.temperature;
+        document.getElementById('tempValue').innerText = config.temperature;
+    }
+    if (config.maxLength) document.getElementById('maxLength').value = config.maxLength;
+    if (config.commands) {
+        document.getElementById('enableAsk').checked = config.commands.ask !== false;
+        document.getElementById('enableRoast').checked = config.commands.roast !== false;
+        document.getElementById('enableJoke').checked = config.commands.joke !== false;
+        document.getElementById('enableFact').checked = config.commands.fact !== false;
+    }
+    if (config.cooldown) document.getElementById('cooldown').value = config.cooldown;
+    if (config.botPrefix) document.getElementById('botPrefix').value = config.botPrefix;
+    if (config.responseStyle) document.getElementById('responseStyle').value = config.responseStyle;
+    if (config.customPrompt) document.getElementById('customPrompt').value = config.customPrompt;
+}
+
+// Gather configuration from form
+function gatherConfig() {
+    return {
+        ebsUrl: document.getElementById('ebsUrl').value.trim(),
         model: document.getElementById('model').value,
         temperature: parseFloat(document.getElementById('temperature').value),
         maxLength: parseInt(document.getElementById('maxLength').value),
@@ -24,78 +79,129 @@ document.getElementById('saveBtn').addEventListener('click', function() {
             fact: document.getElementById('enableFact').checked
         },
         cooldown: parseInt(document.getElementById('cooldown').value),
-        botPrefix: document.getElementById('botPrefix').value,
+        botPrefix: document.getElementById('botPrefix').value.trim() || '🤖 Gemini',
         responseStyle: document.getElementById('responseStyle').value,
-        customPrompt: document.getElementById('customPrompt').value
+        customPrompt: document.getElementById('customPrompt').value.trim()
     };
+}
+
+// Save configuration
+document.getElementById('saveBtn').addEventListener('click', async function() {
+    const saveBtn = document.getElementById('saveBtn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '⏳ Saving...';
     
-    saveConfiguration(config);
-});
-
-// Load existing configuration
-function loadConfiguration() {
-    // Listen for configuration changes [citation:2][citation:9]
-    window.Twitch.ext.configuration.onChanged(function() {
-        if (window.Twitch.ext.configuration.broadcaster &&
-            window.Twitch.ext.configuration.broadcaster.content) {
-            try {
-                const config = JSON.parse(
-                    window.Twitch.ext.configuration.broadcaster.content
-                );
-                applyConfiguration(config);
-            } catch (e) {
-                console.error('Failed to parse config:', e);
-            }
-        }
-    });
-}
-
-// Apply loaded config to UI
-function applyConfiguration(config) {
-    if (config.apiKey) document.getElementById('apiKey').value = config.apiKey;
-    if (config.model) document.getElementById('model').value = config.model;
-    if (config.temperature) {
-        document.getElementById('temperature').value = config.temperature;
-        document.getElementById('tempValue').innerText = config.temperature;
-    }
-    if (config.maxLength) document.getElementById('maxLength').value = config.maxLength;
-    if (config.commands) {
-        document.getElementById('enableAsk').checked = config.commands.ask;
-        document.getElementById('enableRoast').checked = config.commands.roast;
-        document.getElementById('enableJoke').checked = config.commands.joke;
-        document.getElementById('enableFact').checked = config.commands.fact;
-    }
-    if (config.cooldown) document.getElementById('cooldown').value = config.cooldown;
-    if (config.botPrefix) document.getElementById('botPrefix').value = config.botPrefix;
-    if (config.responseStyle) document.getElementById('responseStyle').value = config.responseStyle;
-    if (config.customPrompt) document.getElementById('customPrompt').value = config.customPrompt;
-}
-
-// Save configuration to Twitch's service [citation:2]
-function saveConfiguration(config) {
     try {
-        const configString = JSON.stringify(config);
+        const config = gatherConfig();
+        const apiKey = document.getElementById('apiKey').value.trim();
         
-        // Use Twitch's Configuration Service [citation:5]
+        // Validate required fields
+        if (!config.ebsUrl) {
+            throw new Error('Backend Server URL is required');
+        }
+        
+        // Store API key securely on the backend (if provided)
+        if (apiKey) {
+            const response = await fetch(config.ebsUrl + '/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + auth.token
+                },
+                body: JSON.stringify({
+                    channelId: auth.channelId,
+                    apiKey: apiKey,
+                    model: config.model,
+                    temperature: config.temperature,
+                    maxLength: config.maxLength,
+                    responseStyle: config.responseStyle,
+                    customPrompt: config.customPrompt
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to save API key to backend');
+            }
+            
+            // Mark that API key is set (without storing the key itself)
+            config.hasApiKey = true;
+        }
+        
+        // Save non-sensitive config to Twitch Configuration Service
+        const configString = JSON.stringify(config);
         window.Twitch.ext.configuration.set('broadcaster', '1.0', configString);
         
         showStatus('✅ Configuration saved successfully!', 'success');
+        
+        // Clear the API key field and update placeholder
+        if (apiKey) {
+            document.getElementById('apiKey').value = '';
+            document.getElementById('apiKey').placeholder = '••••••••••••••••••••••••••• (key saved)';
+        }
+        
     } catch (error) {
         console.error('Save error:', error);
-        showStatus('❌ Failed to save configuration: ' + error.message, 'error');
+        showStatus('❌ ' + error.message, 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Save Configuration';
     }
-}
+});
 
+// Test connection to backend
+document.getElementById('testBtn').addEventListener('click', async function() {
+    const testBtn = document.getElementById('testBtn');
+    testBtn.disabled = true;
+    testBtn.textContent = '⏳ Testing...';
+    
+    try {
+        const url = document.getElementById('ebsUrl').value.trim();
+        if (!url) {
+            throw new Error('Please enter the Backend Server URL first');
+        }
+        
+        const response = await fetch(url + '/api/health', {
+            method: 'GET',
+            headers: {
+                'Authorization': 'Bearer ' + auth.token
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.hasApiKey) {
+                showStatus('✅ Connected! API key is configured for this channel.', 'success');
+            } else {
+                showStatus('⚠️ Connected, but no API key configured yet. Save your configuration.', 'warning');
+            }
+        } else {
+            throw new Error('Backend returned status ' + response.status);
+        }
+    } catch (error) {
+        console.error('Test error:', error);
+        showStatus('❌ Connection failed: ' + error.message, 'error');
+    } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = '🧪 Test Connection';
+    }
+});
+
+// Show status message
 function showStatus(message, type) {
     const statusDiv = document.getElementById('status');
     statusDiv.className = 'status ' + type;
     statusDiv.innerHTML = message;
-    setTimeout(() => {
-        statusDiv.className = 'status';
-    }, 3000);
+    
+    // Auto-hide success messages
+    if (type === 'success') {
+        setTimeout(() => {
+            statusDiv.className = 'status';
+        }, 5000);
+    }
 }
 
-// Temperature display
+// Temperature slider display
 document.getElementById('temperature').addEventListener('input', function() {
     document.getElementById('tempValue').innerText = this.value;
 });

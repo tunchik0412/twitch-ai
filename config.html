@@ -10,33 +10,43 @@
             padding: 20px;
             max-width: 600px;
             margin: 0 auto;
-            background: #f5f5f5;
+            background: #18181b;
+            color: #efeff1;
         }
         .config-section {
-            background: white;
+            background: #0e0e10;
             padding: 20px;
             border-radius: 10px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            border: 1px solid #2f2f35;
         }
         .config-section h2 {
             margin-top: 0;
-            color: #6441a5;
+            color: #9147ff;
+            border-bottom: 1px solid #2f2f35;
+            padding-bottom: 10px;
         }
         label {
             display: block;
             margin-top: 15px;
             margin-bottom: 5px;
             font-weight: bold;
-            color: #333;
+            color: #efeff1;
         }
         input, select, textarea {
             width: 100%;
             padding: 10px;
-            border: 1px solid #ddd;
+            border: 1px solid #3a3a3d;
             border-radius: 5px;
             font-size: 14px;
             box-sizing: border-box;
+            background: #1f1f23;
+            color: #efeff1;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #9147ff;
         }
         .checkbox-group {
             display: flex;
@@ -46,9 +56,13 @@
         }
         .checkbox-group input {
             width: auto;
+            accent-color: #9147ff;
+        }
+        .checkbox-group label {
+            margin: 0;
         }
         button {
-            background-color: #6441a5;
+            background-color: #9147ff;
             color: white;
             border: none;
             padding: 12px 24px;
@@ -57,9 +71,14 @@
             font-size: 16px;
             margin-top: 20px;
             width: 100%;
+            transition: background-color 0.2s;
         }
         button:hover {
-            background-color: #7d5bbe;
+            background-color: #772ce8;
+        }
+        button:disabled {
+            background-color: #3a3a3d;
+            cursor: not-allowed;
         }
         .status {
             margin-top: 15px;
@@ -68,47 +87,92 @@
             display: none;
         }
         .status.success {
-            background-color: #d4edda;
-            color: #155724;
+            background-color: #1a472a;
+            color: #4ade80;
             display: block;
+            border: 1px solid #22c55e;
         }
         .status.error {
-            background-color: #f8d7da;
-            color: #721c24;
+            background-color: #4a1a1a;
+            color: #f87171;
             display: block;
+            border: 1px solid #ef4444;
         }
-        .cooldown-group {
+        .status.warning {
+            background-color: #4a3a1a;
+            color: #fbbf24;
+            display: block;
+            border: 1px solid #f59e0b;
+        }
+        small {
+            color: #adadb8;
+        }
+        small a {
+            color: #bf94ff;
+        }
+        .range-container {
             display: flex;
-            gap: 15px;
             align-items: center;
+            gap: 10px;
         }
-        .cooldown-group input {
-            width: 80px;
+        .range-container input[type="range"] {
+            flex: 1;
+        }
+        .range-value {
+            background: #1f1f23;
+            padding: 5px 10px;
+            border-radius: 4px;
+            min-width: 40px;
+            text-align: center;
+        }
+        .security-notice {
+            background: #1a1a2e;
+            border: 1px solid #9147ff;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        .security-notice strong {
+            color: #9147ff;
         }
     </style>
 </head>
 <body>
     <div class="config-section">
         <h2>🤖 Gemini AI Configuration</h2>
-        <p><strong>This configuration page is only visible to you, the streamer.</strong></p>
+        
+        <div class="security-notice">
+            <strong>🔒 Broadcaster Only:</strong> This configuration page is only visible to you. 
+            Your API key is securely stored and never exposed to viewers.
+        </div>
+        
+        <label>Backend Server URL:</label>
+        <input type="text" id="ebsUrl" placeholder="https://your-app.onrender.com">
+        <small>Your deployed Flask backend URL (e.g., on Render.com)</small>
         
         <label>Gemini API Key:</label>
         <input type="password" id="apiKey" placeholder="Enter your Gemini API key">
-        <small style="color: #666;">Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></small>
+        <small>Get your API key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a></small>
         
         <label>AI Model:</label>
         <select id="model">
             <option value="gemini-pro">Gemini Pro</option>
             <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash (Faster)</option>
         </select>
         
-        <label>Temperature (Creativity):</label>
-        <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
-        <span id="tempValue">0.7</span>
+        <label>Temperature (Creativity): <span id="tempValue">0.7</span></label>
+        <div class="range-container">
+            <span>0</span>
+            <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
+            <span>1</span>
+        </div>
+        <small>Lower = more focused, Higher = more creative</small>
         
         <label>Max Response Length:</label>
         <input type="number" id="maxLength" value="300" min="50" max="450">
+        <small>Maximum characters per response (50-450)</small>
     </div>
     
     <div class="config-section">
@@ -116,33 +180,34 @@
         
         <div class="checkbox-group">
             <input type="checkbox" id="enableAsk" checked>
-            <label style="margin:0">Enable !ask command</label>
+            <label>Enable !ask command (viewers can ask questions)</label>
         </div>
         
         <div class="checkbox-group">
             <input type="checkbox" id="enableRoast" checked>
-            <label style="margin:0">Enable !roast command</label>
+            <label>Enable !roast command (playful roasts)</label>
         </div>
         
         <div class="checkbox-group">
             <input type="checkbox" id="enableJoke" checked>
-            <label style="margin:0">Enable !joke command</label>
+            <label>Enable !joke command (random jokes)</label>
         </div>
         
         <div class="checkbox-group">
             <input type="checkbox" id="enableFact" checked>
-            <label style="margin:0">Enable !fact command</label>
+            <label>Enable !fact command (interesting facts)</label>
         </div>
         
         <label>Command Cooldown (seconds):</label>
-        <input type="number" id="cooldown" value="5" min="1" max="30">
+        <input type="number" id="cooldown" value="5" min="1" max="60">
+        <small>Time between commands per user (1-60 seconds)</small>
     </div>
     
     <div class="config-section">
-        <h2>🎨 Appearance</h2>
+        <h2>🎨 Appearance & Style</h2>
         
         <label>Bot Name Prefix:</label>
-        <input type="text" id="botPrefix" value="🤖 Gemini">
+        <input type="text" id="botPrefix" value="🤖 Gemini" maxlength="20">
         
         <label>Response Style:</label>
         <select id="responseStyle">
@@ -154,9 +219,11 @@
         
         <label>Custom System Prompt (optional):</label>
         <textarea id="customPrompt" rows="3" placeholder="You are a friendly AI assistant in a Twitch stream..."></textarea>
+        <small>Override the default personality with your own instructions</small>
     </div>
     
     <button id="saveBtn">💾 Save Configuration</button>
+    <button id="testBtn" style="background-color: #2f2f35; margin-top: 10px;">🧪 Test Connection</button>
     <div id="status" class="status"></div>
     
     <script src="config.js"></script>
