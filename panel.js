@@ -102,11 +102,8 @@ function updateStatusIndicator(online) {
 
 // Send message to backend EBS
 async function sendToGemini(command, userMessage) {
-    if (!isConfigured) {
-        return "The extension is not configured yet. Please wait for the streamer to set it up.";
-    }
-    
     try {
+        console.log('Sending to:', config.ebsUrl + '/api/gemini');
         const response = await fetch(config.ebsUrl + '/api/gemini', {
             method: 'POST',
             headers: {
@@ -131,6 +128,9 @@ async function sendToGemini(command, userMessage) {
         
     } catch (error) {
         console.error('API error:', error);
+        if (error.message.includes('API key')) {
+            return "The streamer hasn't configured their API key yet. Please try again later! 🔧";
+        }
         return "Sorry, I'm having trouble connecting right now. Please try again! 😅";
     }
 }

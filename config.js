@@ -11,6 +11,13 @@ window.Twitch.ext.onAuthorized(function(authData) {
     console.log('Extension authorized for channel:', authData.channelId);
     auth = authData;
     loadConfiguration();
+    
+    // Auto-fill channel name field if we can detect it
+    // The channelId is numeric, but we can hint based on that
+    const channelInput = document.getElementById('twitchChannel');
+    if (channelInput && !channelInput.value) {
+        channelInput.placeholder = 'your_channel_name';
+    }
 });
 
 window.Twitch.ext.onContext(function(context) {
@@ -227,4 +234,69 @@ function showStatus(message, type) {
 // Temperature slider display
 document.getElementById('temperature').addEventListener('input', function() {
     document.getElementById('tempValue').innerText = this.value;
+});
+
+// Download .env file for chat bot
+document.getElementById('downloadEnvBtn').addEventListener('click', function() {
+    const twitchToken = document.getElementById('twitchToken').value.trim();
+    const twitchChannel = document.getElementById('twitchChannel').value.trim();
+    const apiKey = document.getElementById('apiKey').value.trim();
+    const botPrefix = document.getElementById('botCmdPrefix').value.trim() || '!';
+    const cooldown = document.getElementById('cooldown').value || '5';
+    
+    // Validate required fields
+    if (!twitchToken) {
+        showStatus('❌ Please enter your Twitch Bot OAuth Token', 'error');
+        return;
+    }
+    if (!twitchChannel) {
+        showStatus('❌ Please enter your Twitch channel name', 'error');
+        return;
+    }
+    if (!apiKey) {
+        showStatus('❌ Please enter your Gemini API key (in the AI Configuration section above)', 'error');
+        return;
+    }
+    
+    // Format token properly
+    let token = twitchToken;
+    if (!token.startsWith('oauth:')) {
+        token = 'oauth:' + token;
+    }
+    
+    // Generate .env content
+    const envContent = `# Gemini Twitch Chat Bot Configuration
+# Generated from Twitch Extension Config
+
+# Twitch OAuth Token
+TWITCH_TOKEN=${token}
+
+# Twitch channel to join
+TWITCH_CHANNEL=${twitchChannel.toLowerCase().replace('#', '')}
+
+# Gemini API Key
+GEMINI_API_KEY=${apiKey}
+
+# Command prefix
+BOT_PREFIX=${botPrefix}
+
+# Cooldown between commands in seconds
+COOLDOWN_SECONDS=${cooldown}
+`;
+    
+    // Create and download the file
+    const blob = new Blob([envContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '.env';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showStatus('✅ .env file downloaded! Place it in your bot folder and run: python bot.py', 'success');
+    
+    // Clear sensitive fields after download
+    document.getElementById('twitchToken').value = '';
 });
