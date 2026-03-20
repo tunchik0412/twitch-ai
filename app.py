@@ -163,7 +163,7 @@ def get_gemini_model(channel_id):
     
     try:
         genai.configure(api_key=api_key)
-        model_name = config.get('model', 'gemini-1.5-flash')
+        model_name = config.get('model', 'gemini-3.1-flash-lite-preview')
         
         # Configure generation settings
         generation_config = genai.GenerationConfig(
@@ -236,16 +236,17 @@ def save_config():
         
         # Validate API key if provided
         api_key = data.get('apiKey')
+        selected_model = data.get('model', 'gemini-3.1-flash-lite-preview')
+        
         if api_key:
-            # Test the API key
+            # Test the API key with the selected model
             try:
                 genai.configure(api_key=api_key)
-                # Use gemini-1.5-flash for testing (widely available)
-                test_model = genai.GenerativeModel('gemini-1.5-flash')
+                test_model = genai.GenerativeModel(selected_model)
                 # Quick test to verify the key works
                 test_model.generate_content("Hi", generation_config=genai.GenerationConfig(max_output_tokens=10))
             except Exception as e:
-                return jsonify({'error': f'Invalid API key: {str(e)}'}), 400
+                return jsonify({'error': f'Invalid API key or model: {str(e)}'}), 400
         
         # Store configuration
         if channel_id not in channel_configs:
