@@ -163,7 +163,7 @@ def get_gemini_model(channel_id):
     
     try:
         genai.configure(api_key=api_key)
-        model_name = config.get('model', 'gemini-pro')
+        model_name = config.get('model', 'gemini-1.5-flash')
         
         # Configure generation settings
         generation_config = genai.GenerationConfig(
@@ -240,7 +240,8 @@ def save_config():
             # Test the API key
             try:
                 genai.configure(api_key=api_key)
-                test_model = genai.GenerativeModel('gemini-pro')
+                # Use gemini-1.5-flash for testing (widely available)
+                test_model = genai.GenerativeModel('gemini-1.5-flash')
                 # Quick test to verify the key works
                 test_model.generate_content("Hi", generation_config=genai.GenerationConfig(max_output_tokens=10))
             except Exception as e:
