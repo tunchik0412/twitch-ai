@@ -100,32 +100,49 @@ document.getElementById('saveBtn').addEventListener('click', async function() {
             throw new Error('Backend Server URL is required');
         }
         
+        // Ensure URL doesn't have trailing slash
+        config.ebsUrl = config.ebsUrl.replace(/\/+$/, '');
+        
         // Store API key securely on the backend (if provided)
         if (apiKey) {
-            const response = await fetch(config.ebsUrl + '/api/config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + auth.token
-                },
-                body: JSON.stringify({
-                    channelId: auth.channelId,
-                    apiKey: apiKey,
-                    model: config.model,
-                    temperature: config.temperature,
-                    maxLength: config.maxLength,
-                    responseStyle: config.responseStyle,
-                    customPrompt: config.customPrompt
-                })
-            });
+            console.log('Saving to backend:', config.ebsUrl + '/api/config');
             
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to save API key to backend');
+            try {
+                const response = await fetch(config.ebsUrl + '/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + auth.token
+                    },
+                    body: JSON.stringify({
+                        channelId: auth.channelId,
+                        apiKey: apiKey,
+                        model: config.model,
+                        temperature: config.temperature,
+                        maxLength: config.maxLength,
+                        responseStyle: config.responseStyle,
+                        customPrompt: config.customPrompt
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save API key to backend');
+                }
+                
+                // Mark that API key is set (without storing the key itself)
+                config.hasApiKey = true;
+            } catch (fetchError) {
+                // Check if it's a CSP/network error
+                if (fetchError.message.includes('fetch') || fetchError.message.includes('CSP') || fetchError.message.includes('network')) {
+                    throw new Error(
+                        'Cannot connect to backend. Make sure:\n' +
+                        '1. URL "' + config.ebsUrl + '" is added to Extension Allowlist in Twitch Dev Console\n' +
+                        '2. Your backend is running and accessible'
+                    );
+                }
+                throw fetchError;
             }
-            
-            // Mark that API key is set (without storing the key itself)
-            config.hasApiKey = true;
         }
         
         // Save non-sensitive config to Twitch Configuration Service

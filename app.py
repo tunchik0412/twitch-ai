@@ -30,18 +30,13 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# CORS configuration - allow Twitch extension domains
-CORS(app, resources={
-    r"/api/*": {
-        "origins": [
-            "https://*.ext-twitch.tv",
-            "https://localhost.rig.twitch.tv:*",
-            "http://localhost:*"
-        ],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
-    }
-})
+# CORS configuration - allow all origins for Twitch extensions
+# Twitch extensions run from various CDN domains that are hard to predict
+CORS(app, 
+     origins="*",
+     methods=["GET", "POST", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+     supports_credentials=False)
 
 # Configuration
 TWITCH_EXTENSION_SECRET = os.environ.get('TWITCH_EXTENSION_SECRET', '')
@@ -53,6 +48,21 @@ channel_configs = {}
 
 # Rate limiting storage (per channel)
 rate_limits = {}
+
+
+# Ensure CORS headers are always set
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    return response
+
+
+# Handle preflight OPTIONS requests
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    return '', 204
 
 
 def get_extension_secret():
@@ -332,6 +342,16 @@ def status():
         'status': 'online',
         'service': 'Gemini Stream Assistant',
         'version': '1.0.0'
+    })
+
+
+@app.route('/', methods=['GET'])
+def root():
+    """Root endpoint for health checks."""
+    return jsonify({
+        'status': 'online',
+        'service': 'Gemini Stream Assistant',
+        'endpoints': ['/api/status', '/api/health', '/api/config', '/api/gemini']
     })
 
 
