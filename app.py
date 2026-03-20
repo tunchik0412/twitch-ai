@@ -42,12 +42,68 @@ CORS(app,
 TWITCH_EXTENSION_SECRET = os.environ.get('TWITCH_EXTENSION_SECRET', '')
 TWITCH_CLIENT_ID = os.environ.get('TWITCH_CLIENT_ID', '')
 
-# In-memory storage for channel configurations (MVP)
-# For production, use a database (PostgreSQL, Redis, etc.)
+# Persistent storage files
+DATA_DIR = os.environ.get('DATA_DIR', '/tmp')
+CHANNEL_CONFIGS_FILE = os.path.join(DATA_DIR, 'channel_configs.json')
+BOT_CONFIGS_FILE = os.path.join(DATA_DIR, 'bot_configs.json')
+
+
+def load_configs():
+    """Load saved configurations from files."""
+    global channel_configs, bot_configs
+    
+    # Load channel configs
+    try:
+        if os.path.exists(CHANNEL_CONFIGS_FILE):
+            with open(CHANNEL_CONFIGS_FILE, 'r') as f:
+                channel_configs = json.load(f)
+            logger.info(f"Loaded {len(channel_configs)} channel configs")
+    except Exception as e:
+        logger.error(f"Error loading channel configs: {e}")
+        channel_configs = {}
+    
+    # Load bot configs
+    try:
+        if os.path.exists(BOT_CONFIGS_FILE):
+            with open(BOT_CONFIGS_FILE, 'r') as f:
+                bot_configs = json.load(f)
+            logger.info(f"Loaded {len(bot_configs)} bot configs")
+    except Exception as e:
+        logger.error(f"Error loading bot configs: {e}")
+        bot_configs = {}
+
+
+def save_channel_configs():
+    """Save channel configurations to file."""
+    try:
+        with open(CHANNEL_CONFIGS_FILE, 'w') as f:
+            json.dump(channel_configs, f)
+        logger.info(f"Saved {len(channel_configs)} channel configs")
+    except Exception as e:
+        logger.error(f"Error saving channel configs: {e}")
+
+
+def save_bot_configs():
+    """Save bot configurations to file."""
+    try:
+        with open(BOT_CONFIGS_FILE, 'w') as f:
+            json.dump(bot_configs, f)
+        logger.info(f"Saved {len(bot_configs)} bot configs")
+    except Exception as e:
+        logger.error(f"Error saving bot configs: {e}")
+
+
+# In-memory storage for channel configurations
 channel_configs = {}
+
+# Bot configs storage
+bot_configs = {}
 
 # Rate limiting storage (per channel)
 rate_limits = {}
+
+# Load saved configs on startup
+load_configs()
 
 
 # Ensure CORS headers are always set
@@ -266,6 +322,9 @@ def save_config():
         if 'customPrompt' in data:
             channel_configs[channel_id]['customPrompt'] = data['customPrompt']
         
+        # Persist to file
+        save_channel_configs()
+        
         logger.info(f"Configuration saved for channel {channel_id}")
         
         return jsonify({
@@ -375,9 +434,6 @@ import threading
 import asyncio
 from datetime import timedelta
 
-# Store bot configs per channel: { channel_id: { twitchToken, geminiApiKey, botPrefix, cooldown, enabled } }
-bot_configs = {}
-
 # Active bot instances: { channel_id: bot_thread }
 active_bots = {}
 
@@ -414,6 +470,9 @@ def save_bot_config():
             'botPrefix': bot_prefix,
             'cooldown': cooldown
         }
+        
+        # Persist to file
+        save_bot_configs()
         
         logger.info(f"Bot config saved for channel {channel_id}, enabled={enabled}")
         
@@ -627,6 +686,21 @@ def stop_channel_bot(channel_id: str):
         logger.info(f"Stopping bot for channel {channel_id}")
         # Thread will terminate when bot closes
         del active_bots[channel_id]
+
+
+def start_enabled_bots():
+    """Start all bots that were enabled (called on server startup)."""
+    enabled_count = 0
+    for channel_id, config in bot_configs.items():
+        if config.get('enabled') and config.get('twitchToken') and config.get('geminiApiKey'):
+            logger.info(f"Auto-starting bot for channel {channel_id}...")
+            start_channel_bot(channel_id)
+            enabled_count += 1
+    logger.info(f"Auto-started {enabled_count} bots")
+
+
+# Auto-start enabled bots on server startup
+start_enabled_bots()
 
 
 if __name__ == '__main__':
