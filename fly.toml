@@ -1,23 +1,18 @@
-# fly.toml app configuration file generated for twitch-ai on 2026-03-24T20:39:00Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# Fly.io configuration for Twitch Gemini Chat Bot
+# This is a BACKGROUND WORKER - no HTTP service needed
 
 app = 'twitch-ai'
 primary_region = 'ams'
 
 [build]
+  dockerfile = "Dockerfile"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+[env]
+  BOT_PREFIX = "!"
+  COOLDOWN_SECONDS = "5"
+
+# No [http_service] - this is a background worker that connects to Twitch IRC
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 256
+  size = "shared-cpu-1x"
+  memory = "256mb"
