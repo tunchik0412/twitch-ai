@@ -4,7 +4,7 @@
  */
 
 let auth = null;
-let ebsUrl = '';
+let ebsUrl = 'https://twitch-gemini-ebs.fly.dev';
 
 // Wait for Twitch extension to be ready
 window.Twitch.ext.onAuthorized(function(authData) {
@@ -75,7 +75,7 @@ function applyConfiguration(config) {
 // Gather configuration from form
 function gatherConfig() {
     return {
-        ebsUrl: document.getElementById('ebsUrl').value.trim(),
+        ebsUrl: ebsUrl,
         model: document.getElementById('model').value,
         temperature: parseFloat(document.getElementById('temperature').value),
         maxLength: parseInt(document.getElementById('maxLength').value),
@@ -102,10 +102,7 @@ document.getElementById('saveBtn').addEventListener('click', async function() {
         const config = gatherConfig();
         const apiKey = document.getElementById('apiKey').value.trim();
         
-        // Validate required fields
-        if (!config.ebsUrl) {
-            throw new Error('Backend Server URL is required');
-        }
+        // Backend URL is set by default
         
         // Ensure URL doesn't have trailing slash
         config.ebsUrl = config.ebsUrl.replace(/\/+$/, '');
