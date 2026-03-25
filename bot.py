@@ -18,6 +18,7 @@ Setup:
 """
 
 import os
+import requests
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -57,7 +58,27 @@ if not GEMINI_API_KEY:
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+
+# EBS backend URL (hardcoded, matches extension)
+EBS_URL = os.environ.get('EBS_URL', 'https://twitch-gemini-ebs.fly.dev')
+
+# Cache for channel config
+channel_config_cache = {}
+
+def fetch_channel_config(channel_name):
+    """Fetch channel config (including customPrompt) from EBS backend."""
+    global channel_config_cache
+    if channel_name in channel_config_cache:
+        return channel_config_cache[channel_name]
+    try:
+        resp = requests.get(f"{EBS_URL}/api/config/{channel_name}", timeout=5)
+        if resp.status_code == 200:
+            config = resp.json().get('config', {})
+            channel_config_cache[channel_name] = config
+            return config
+    except Exception as e:
+        logger.warning(f"Could not fetch config for {channel_name}: {e}")
+    return {}
 
 # Cooldown tracking
 user_cooldowns = {}
@@ -84,22 +105,30 @@ def get_remaining_cooldown(user_id: str) -> int:
 async def generate_response(prompt: str, command: str, style: str = "friendly") -> str:
     """Generate a response using Gemini AI."""
     
+    # Fetch customPrompt for the channel
+    config = fetch_channel_config(TWITCH_CHANNEL)
+    custom_prompt = config.get('customPrompt')
+
     style_prompts = {
         'friendly': "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language. You can use emotes like :) or emojis.",
         'funny': "You are a hilarious AI in Twitch chat. Be witty and make people laugh! Keep it SHORT (under 400 chars).",
     }
-    
+
     command_prompts = {
         'ask': f"Answer this concisely: {prompt}",
         'roast': f"Give a playful, light-hearted roast about '{prompt}'. Keep it fun, NOT mean. Make people laugh!",
         'joke': "Tell a short, funny joke. Gaming/streaming related is great, but any clean joke works.",
         'fact': "Share one interesting, surprising fact. Make it memorable!"
     }
-    
+
     system = style_prompts.get(style, style_prompts['friendly'])
     user_prompt = command_prompts.get(command, command_prompts['ask'])
-    
-    full_prompt = f"{system}\n\n{user_prompt}"
+
+    # If customPrompt is set, prepend it
+    if custom_prompt:
+        full_prompt = f"{custom_prompt}\n\n{system}\n\n{user_prompt}"
+    else:
+        full_prompt = f"{system}\n\n{user_prompt}"
     
     try:
         response = await asyncio.to_thread(
