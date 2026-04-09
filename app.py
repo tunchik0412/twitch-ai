@@ -124,12 +124,16 @@ def handle_options(path):
 def get_extension_secret():
     """Get and decode the Twitch extension secret."""
     if not TWITCH_EXTENSION_SECRET:
+        logger.warning("[Secret] TWITCH_EXTENSION_SECRET is not set")
         return None
     try:
+        logger.info(f"[Secret] Raw secret length: {len(TWITCH_EXTENSION_SECRET)}")
         # Twitch secrets are base64 encoded
-        return base64.b64decode(TWITCH_EXTENSION_SECRET)
+        decoded = base64.b64decode(TWITCH_EXTENSION_SECRET)
+        logger.info(f"[Secret] Decoded secret length: {len(decoded)} bytes")
+        return decoded
     except Exception as e:
-        logger.error(f"Failed to decode extension secret: {e}")
+        logger.error(f"[Secret] Failed to decode extension secret: {e}")
         return None
 
 
@@ -192,8 +196,14 @@ def verify_twitch_jwt(f):
             logger.warning("[JWT Verify] Token expired")
             return jsonify({'error': 'Token has expired'}), 401
         except jwt.InvalidTokenError as e:
-            logger.error(f"JWT validation error: {e}")
+            logger.error(f"[JWT Verify] Invalid token error: {type(e).__name__}: {e}")
+            # Log first/last few chars of token for debugging (not full token for security)
+            if len(token) > 20:
+                logger.error(f"[JWT Verify] Token preview: {token[:10]}...{token[-10:]}")
             return jsonify({'error': 'Invalid token'}), 401
+        except Exception as e:
+            logger.error(f"[JWT Verify] Unexpected error: {type(e).__name__}: {e}")
+            return jsonify({'error': 'Token verification failed'}), 401
     
     return decorated
 
@@ -553,9 +563,29 @@ def bot_get_remaining_cooldown(channel_id: str, user_id: str) -> int:
     return max(0, int(remaining))
 
 
-async def bot_generate_response(gemini_api_key: str, prompt: str, command: str) -> str:
+async def bot_generate_response(gemini_api_key: str, prompt: str, command: str, channel_id: str = None) -> str:
     """Generate a response using Gemini AI for the bot."""
-    style_prompt = "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language. You can use emotes like :) or emojis."
+    
+    # Get custom config from channel if available
+    custom_prompt = None
+    response_style = 'friendly'
+    if channel_id and channel_id in channel_configs:
+        config = channel_configs[channel_id]
+        custom_prompt = config.get('customPrompt')
+        response_style = config.get('responseStyle', 'friendly')
+    
+    style_prompts = {
+        'friendly': "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language.",
+        'professional': "You are a professional AI assistant in a Twitch chat. Provide clear, informative responses under 400 chars.",
+        'funny': "You are a hilarious AI assistant in a Twitch chat. Make people laugh! Keep responses under 400 chars.",
+        'lore': "You are an AI from a fantasy RPG world in a Twitch chat. Respond with epic flavor, under 400 chars."
+    }
+    
+    style_prompt = style_prompts.get(response_style, style_prompts['friendly'])
+    
+    # Add custom prompt if set
+    if custom_prompt:
+        style_prompt = f"{style_prompt}\n\nAdditional instructions: {custom_prompt}"
     
     command_prompts = {
         'ask': f"Answer this concisely: {prompt}",
@@ -646,7 +676,7 @@ def run_channel_bot(channel_id: str, config: dict):
                 if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
                     await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
-                response = await bot_generate_response(self.gemini_key, question, 'ask')
+                response = await bot_generate_response(self.gemini_key, question, 'ask', self.channel_id)
                 await ctx.reply(response)
             
             @twitch_commands.command(name='joke')
@@ -654,7 +684,7 @@ def run_channel_bot(channel_id: str, config: dict):
                 if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
                     await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
-                response = await bot_generate_response(self.gemini_key, '', 'joke')
+                response = await bot_generate_response(self.gemini_key, '', 'joke', self.channel_id)
                 await ctx.reply(f"😂 {response}")
             
             @twitch_commands.command(name='fact')
@@ -662,7 +692,7 @@ def run_channel_bot(channel_id: str, config: dict):
                 if not bot_check_cooldown(self.channel_id, ctx.author.id, self.cooldown):
                     await ctx.reply(f"Cooldown! Wait {bot_get_remaining_cooldown(self.channel_id, ctx.author.id)}s ⏳")
                     return
-                response = await bot_generate_response(self.gemini_key, '', 'fact')
+                response = await bot_generate_response(self.gemini_key, '', 'fact', self.channel_id)
                 await ctx.reply(f"📊 {response}")
             
             @twitch_commands.command(name='roast')
@@ -673,7 +703,7 @@ def run_channel_bot(channel_id: str, config: dict):
                 if not target:
                     target = ctx.author.name
                 target = target.lstrip('@')
-                response = await bot_generate_response(self.gemini_key, target, 'roast')
+                response = await bot_generate_response(self.gemini_key, target, 'roast', self.channel_id)
                 await ctx.reply(f"🔥 @{target} {response}")
         
         # Run the bot
