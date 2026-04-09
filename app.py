@@ -137,25 +137,34 @@ def verify_twitch_jwt(f):
     """Decorator to verify Twitch extension JWT tokens."""
     @wraps(f)
     def decorated(*args, **kwargs):
+        logger.info(f"[JWT Verify] {request.method} {request.path}")
         auth_header = request.headers.get('Authorization', '')
+        logger.info(f"[JWT Verify] Auth header present: {bool(auth_header)}, starts with Bearer: {auth_header.startswith('Bearer ')}")
         
         if not auth_header.startswith('Bearer '):
+            logger.warning("[JWT Verify] Missing or invalid Authorization header")
             return jsonify({'error': 'Missing or invalid Authorization header'}), 401
         
         token = auth_header[7:]  # Remove 'Bearer ' prefix
+        logger.info(f"[JWT Verify] Token length: {len(token)}")
         
         # In development/testing, allow bypass if no secret configured
         if not TWITCH_EXTENSION_SECRET:
             logger.warning("No TWITCH_EXTENSION_SECRET set - skipping JWT verification")
-            # Extract channel_id from request body for testing
-            request.channel_id = request.json.get('channelId', 'test_channel')
+            # Extract channel_id from request body for testing (POST) or query params (GET)
+            if request.json:
+                request.channel_id = request.json.get('channelId', 'test_channel')
+            else:
+                request.channel_id = request.args.get('channelId', 'test_channel')
             request.user_id = 'test_user'
             request.role = 'broadcaster'
+            logger.info(f"[JWT Verify] Test mode - channel_id={request.channel_id}")
             return f(*args, **kwargs)
         
         try:
             secret = get_extension_secret()
             if not secret:
+                logger.error("[JWT Verify] Failed to get extension secret")
                 return jsonify({'error': 'Server configuration error'}), 500
             
             # Decode and verify JWT
@@ -171,12 +180,16 @@ def verify_twitch_jwt(f):
             request.user_id = decoded.get('user_id', decoded.get('opaque_user_id'))
             request.role = decoded.get('role', 'viewer')
             
+            logger.info(f"[JWT Verify] Success - channel_id={request.channel_id}, role={request.role}")
+            
             if not request.channel_id:
+                logger.warning("[JWT Verify] Token missing channel_id")
                 return jsonify({'error': 'Invalid token: missing channel_id'}), 401
             
             return f(*args, **kwargs)
             
         except jwt.ExpiredSignatureError:
+            logger.warning("[JWT Verify] Token expired")
             return jsonify({'error': 'Token has expired'}), 401
         except jwt.InvalidTokenError as e:
             logger.error(f"JWT validation error: {e}")
@@ -267,18 +280,31 @@ def build_prompt(command, user_prompt, style, custom_prompt=None):
 
 # ============== API ENDPOINTS ==============
 
+# Simple ping endpoint without auth for basic connectivity test
+@app.route('/api/ping', methods=['GET', 'OPTIONS'])
+def ping():
+    """Simple ping endpoint for testing connectivity without auth."""
+    if request.method == 'OPTIONS':
+        return '', 204
+    logger.info("[Ping] Request received")
+    return jsonify({'status': 'pong', 'timestamp': datetime.now().isoformat()})
+
+
 @app.route('/api/health', methods=['GET'])
 @verify_twitch_jwt
 def health_check():
     """Health check endpoint - also returns if API key is configured."""
+    logger.info(f"[Health Check] Request from channel_id={getattr(request, 'channel_id', 'unknown')}")
     channel_id = request.channel_id
     config = channel_configs.get(channel_id, {})
     
-    return jsonify({
+    result = {
         'status': 'ok',
         'hasApiKey': bool(config.get('apiKey')),
         'model': config.get('model', 'not set')
-    })
+    }
+    logger.info(f"[Health Check] Response: {result}")
+    return jsonify(result)
 
 
 @app.route('/api/config', methods=['POST'])

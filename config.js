@@ -188,26 +188,63 @@ document.getElementById('testBtn').addEventListener('click', async function() {
             throw new Error('Please enter the Backend Server URL first');
         }
         
-        const response = await fetch(url + '/api/health', {
+        // First, test basic connectivity with ping (no auth required)
+        const pingUrl = url + '/api/ping';
+        console.log('[Test Connection] Step 1: Testing basic connectivity to:', pingUrl);
+        
+        try {
+            const pingResponse = await fetch(pingUrl, { method: 'GET' });
+            console.log('[Test Connection] Ping response status:', pingResponse.status);
+            if (!pingResponse.ok) {
+                throw new Error('Ping failed with status ' + pingResponse.status);
+            }
+            const pingData = await pingResponse.json();
+            console.log('[Test Connection] Ping successful:', pingData);
+        } catch (pingError) {
+            console.error('[Test Connection] Ping failed:', pingError);
+            throw new Error('Cannot reach server. Check URL and ensure server is running. (' + pingError.message + ')');
+        }
+        
+        // Now test authenticated endpoint
+        const healthUrl = url + '/api/health';
+        console.log('[Test Connection] Step 2: Testing authenticated endpoint:', healthUrl);
+        console.log('[Test Connection] Auth token present:', !!auth?.token);
+        console.log('[Test Connection] Channel ID:', auth?.channelId);
+        
+        const response = await fetch(healthUrl, {
             method: 'GET',
             headers: {
                 'Authorization': 'Bearer ' + auth.token
             }
         });
         
+        console.log('[Test Connection] Response status:', response.status);
+        console.log('[Test Connection] Response headers:', Object.fromEntries(response.headers.entries()));
+        
         if (response.ok) {
             const data = await response.json();
+            console.log('[Test Connection] Response data:', data);
             if (data.hasApiKey) {
                 showStatus('✅ Connected! API key is configured for this channel.', 'success');
             } else {
                 showStatus('⚠️ Connected, but no API key configured yet. Save your configuration.', 'warning');
             }
         } else {
-            throw new Error('Backend returned status ' + response.status);
+            const errorText = await response.text();
+            console.error('[Test Connection] Error response:', errorText);
+            throw new Error('Backend returned status ' + response.status + ': ' + errorText);
         }
     } catch (error) {
-        console.error('Test error:', error);
-        showStatus('❌ Connection failed: ' + error.message, 'error');
+        console.error('[Test Connection] Error:', error);
+        console.error('[Test Connection] Error name:', error.name);
+        console.error('[Test Connection] Error message:', error.message);
+        
+        // Provide more helpful error messages
+        let errorMsg = error.message;
+        if (error.message === 'Failed to fetch') {
+            errorMsg = 'Failed to fetch - Check browser console for details. Common causes: server unreachable, CORS blocked, or SSL certificate issue.';
+        }
+        showStatus('❌ Connection failed: ' + errorMsg, 'error');
     } finally {
         testBtn.disabled = false;
         testBtn.textContent = '🧪 Test Connection';
