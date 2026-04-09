@@ -470,7 +470,7 @@ import threading
 import asyncio
 from datetime import timedelta
 
-# Active bot instances: { channel_id: bot_thread }
+# Active bot instances: { channel_id: {'thread': thread, 'bot': bot, 'loop': loop} }
 active_bots = {}
 
 # Cooldown tracking per channel: { "channel_id:user_id": datetime }
@@ -652,6 +652,7 @@ def run_channel_bot(channel_id: str, config: dict):
                 self.gemini_key = gemini_api_key
                 self.cooldown = cooldown
                 self.target_channel = None
+                self._should_stop = False
             
             async def event_ready(self):
                 # Join the channel that matches the bot's username
@@ -660,7 +661,7 @@ def run_channel_bot(channel_id: str, config: dict):
                 logger.info(f'Bot ready for channel {self.target_channel} (ID: {self.channel_id})')
             
             async def event_message(self, message):
-                if message.echo:
+                if message.echo or self._should_stop:
                     return
                 await self.handle_commands(message)
             
@@ -711,11 +712,16 @@ def run_channel_bot(channel_id: str, config: dict):
         asyncio.set_event_loop(loop)
         
         bot = ChannelBot()
+        
+        # Store bot and loop references for proper cleanup
+        active_bots[channel_id] = {'bot': bot, 'loop': loop}
+        
         loop.run_until_complete(bot.start())
         
     except Exception as e:
         logger.error(f"Bot error for channel {channel_id}: {e}")
-        # Remove from active bots on error
+    finally:
+        # Remove from active bots when done
         if channel_id in active_bots:
             del active_bots[channel_id]
 
@@ -732,7 +738,7 @@ def start_channel_bot(channel_id: str):
     logger.info(f"Starting bot for channel {channel_id}...")
     thread = threading.Thread(target=run_channel_bot, args=(channel_id, config), daemon=True)
     thread.start()
-    active_bots[channel_id] = thread
+    # Note: active_bots[channel_id] is set inside run_channel_bot with bot/loop references
     logger.info(f"Bot thread started for channel {channel_id}")
 
 
@@ -740,8 +746,24 @@ def stop_channel_bot(channel_id: str):
     """Stop a bot for a specific channel."""
     if channel_id in active_bots:
         logger.info(f"Stopping bot for channel {channel_id}")
-        # Thread will terminate when bot closes
+        bot_info = active_bots[channel_id]
+        
+        # Properly close the bot
+        if isinstance(bot_info, dict) and 'bot' in bot_info and 'loop' in bot_info:
+            bot = bot_info['bot']
+            loop = bot_info['loop']
+            
+            # Signal the bot to stop
+            bot._should_stop = True
+            
+            # Schedule close on the bot's event loop
+            try:
+                loop.call_soon_threadsafe(lambda: asyncio.ensure_future(bot.close()))
+            except Exception as e:
+                logger.error(f"Error closing bot for {channel_id}: {e}")
+        
         del active_bots[channel_id]
+        logger.info(f"Bot stopped for channel {channel_id}")
 
 
 def start_enabled_bots():
