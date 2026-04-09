@@ -188,26 +188,8 @@ document.getElementById('testBtn').addEventListener('click', async function() {
             throw new Error('Please enter the Backend Server URL first');
         }
         
-        // First, test basic connectivity with ping (no auth required)
-        const pingUrl = url + '/api/ping';
-        console.log('[Test Connection] Step 1: Testing basic connectivity to:', pingUrl);
-        
-        try {
-            const pingResponse = await fetch(pingUrl, { method: 'GET' });
-            console.log('[Test Connection] Ping response status:', pingResponse.status);
-            if (!pingResponse.ok) {
-                throw new Error('Ping failed with status ' + pingResponse.status);
-            }
-            const pingData = await pingResponse.json();
-            console.log('[Test Connection] Ping successful:', pingData);
-        } catch (pingError) {
-            console.error('[Test Connection] Ping failed:', pingError);
-            throw new Error('Cannot reach server. Check URL and ensure server is running. (' + pingError.message + ')');
-        }
-        
-        // Now test authenticated endpoint
         const healthUrl = url + '/api/health';
-        console.log('[Test Connection] Step 2: Testing authenticated endpoint:', healthUrl);
+        console.log('[Test Connection] URL:', healthUrl);
         console.log('[Test Connection] Auth token present:', !!auth?.token);
         console.log('[Test Connection] Channel ID:', auth?.channelId);
         
@@ -242,7 +224,9 @@ document.getElementById('testBtn').addEventListener('click', async function() {
         // Provide more helpful error messages
         let errorMsg = error.message;
         if (error.message === 'Failed to fetch') {
-            errorMsg = 'Failed to fetch - Check browser console for details. Common causes: server unreachable, CORS blocked, or SSL certificate issue.';
+            errorMsg = 'Failed to fetch - This usually means the URL is not in the Twitch Extension Allowlist. ' +
+                'Go to Twitch Developer Console → Extension → Capabilities → Add "' + 
+                document.getElementById('ebsUrl').value.trim() + '" to the Extension Backend Service allowlist.';
         }
         showStatus('❌ Connection failed: ' + errorMsg, 'error');
     } finally {
