@@ -1,0 +1,11 @@
+{$DOMAIN} {
+    encode gzip
+
+    handle /api/* {
+        reverse_proxy ebs:8080
+    }
+
+    handle {
+        respond "Gemini Stream Assistant EBS is running" 200
+    }
+}

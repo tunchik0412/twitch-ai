@@ -49,6 +49,71 @@ twitch-ai/
    - `TWITCH_CLIENT_ID`: Your extension client ID
 6. Deploy and note your service URL (e.g., `https://your-app.onrender.com`)
 
+### 2b. Deploy on Hetzner (Docker Compose + Caddy)
+
+Use this option if you want to self-host on a Hetzner server.
+
+Prerequisites:
+- A Hetzner VPS or Cloud server (Ubuntu/Debian)
+- A domain/subdomain pointing to your server (for example, `ebs.example.com`)
+- Ports `80` and `443` open
+
+This repo includes:
+- `docker-compose.hetzner.yml` (EBS API + bot worker + Caddy)
+- `.env.hetzner.example` (environment template)
+- `deploy/hetzner/Caddyfile` (TLS reverse proxy)
+
+Server setup:
+
+```bash
+# Install Docker and the compose plugin
+sudo apt update
+sudo apt install -y docker.io docker-compose-plugin
+sudo systemctl enable --now docker
+
+# Clone repository
+git clone <your-repo-url>
+cd twitch-ai
+
+# Create env file and edit secrets
+cp .env.hetzner.example .env.hetzner
+```
+
+Set these required values in `.env.hetzner`:
+- `DOMAIN`
+- `TWITCH_EXTENSION_SECRET`
+- `TWITCH_CLIENT_ID`
+- `TWITCH_TOKEN`
+- `TWITCH_CHANNEL`
+- `GEMINI_API_KEY`
+- `EBS_URL` (for example, `https://ebs.example.com`)
+
+Start services:
+
+```bash
+docker compose -f docker-compose.hetzner.yml up -d --build
+```
+
+Verify deployment:
+
+```bash
+docker compose -f docker-compose.hetzner.yml ps
+docker compose -f docker-compose.hetzner.yml logs -f ebs
+curl https://$DOMAIN/
+```
+
+Expected result:
+- `https://$DOMAIN/` returns `Gemini Stream Assistant EBS is running`
+- `https://$DOMAIN/api/*` is proxied to the Flask EBS service
+- The bot runs continuously as a separate worker container
+
+Update after new commits:
+
+```bash
+git pull
+docker compose -f docker-compose.hetzner.yml up -d --build
+```
+
 ### 3. Configure the Extension
 
 1. In the Twitch Developer Console, go to your extension settings
@@ -61,7 +126,7 @@ twitch-ai/
    - Enable "Panel" view
    - Set panel height to 400px
 4. Under "Extension Backend Service":
-   - Enter your Render.com URL
+   - Enter your backend URL (Render or Hetzner), e.g. `https://ebs.example.com`
 
 ### 4. Get a Gemini API Key
 
@@ -74,7 +139,7 @@ twitch-ai/
 1. In the Twitch Developer Console, go to "Hosted Test"
 2. Install the extension on your test channel
 3. Open the config page and enter:
-   - Your Render.com backend URL
+   - Your backend URL
    - Your Gemini API key
    - Configure commands and style
 4. Save the configuration
