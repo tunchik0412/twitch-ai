@@ -15,5 +15,5 @@ RUN mkdir -p /data
 # Expose port
 EXPOSE 8080
 
-# Run with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "app:app"]
+# Run with gunicorn - single worker to prevent duplicate bot instances
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "4", "app:app"]
