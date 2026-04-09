@@ -26,6 +26,8 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    env_file:
+      - .env.hetzner
     ports:
       - "80:80"
       - "443:443"
