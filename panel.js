@@ -6,7 +6,7 @@
 // State
 let auth = null;
 let config = {
-    ebsUrl: 'https://twitch-ai.onrender.com',  // Default to your backend
+    ebsUrl: 'https://twitchgeminiaichatbot.duckdns.org',  // Default to your backend
     commands: { ask: true, roast: true, joke: true, fact: true },
     cooldown: 5,
     botPrefix: '🤖 Gemini',

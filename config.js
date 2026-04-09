@@ -4,7 +4,7 @@
  */
 
 let auth = null;
-let ebsUrl = 'https://twitch-gemini-ebs.fly.dev';
+let ebsUrl = 'https://twitchgeminiaichatbot.duckdns.org';
 
 // Wait for Twitch extension to be ready
 window.Twitch.ext.onAuthorized(function(authData) {
