@@ -328,7 +328,7 @@ def save_config():
         
         # Validate API key if provided
         api_key = data.get('apiKey')
-        selected_model = data.get('model', 'gemini-3.1-flash-lite-preview')
+        selected_model = 'gemini-3.1-flash-lite-preview'
         
         if api_key:
             # Test the API key with the selected model
