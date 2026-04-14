@@ -226,8 +226,8 @@ def check_rate_limit(channel_id, user_id, limit_seconds=2):
     if key in rate_limits:
         last_request = rate_limits[key]
         if now - last_request < limit_seconds:
+            logger.warning(f"Rate limit hit for channel={channel_id}, user={user_id}, last_request={last_request}, now={now}")
             return False
-    
     rate_limits[key] = now
     return True
 
@@ -388,6 +388,7 @@ def gemini_handler():
         
         # Rate limiting
         if not check_rate_limit(channel_id, user_id):
+            logger.error(f"429 Too Many Requests: channel={channel_id}, user={user_id}")
             return jsonify({'error': 'Too many requests. Please wait a moment.'}), 429
         
         # Get channel configuration
@@ -403,11 +404,14 @@ def gemini_handler():
         full_prompt = build_prompt(command, prompt, style, custom_prompt)
         
         # Generate response
-        response = model.generate_content(full_prompt)
-        
-        # Extract and clean response text
-        reply = response.text.strip()
-        
+        try:
+            response = model.generate_content(full_prompt)
+            # Extract and clean response text
+            reply = response.text.strip()
+        except Exception as e:
+            logger.error(f"Gemini API quota or error: {e}")
+            return jsonify({'reply': "Sorry, the AI quota was exceeded or the service is unavailable. Please try again later! 😅"}), 503
+
         # Ensure response fits within max length
         max_length = config.get('maxLength', 450)
         if len(reply) > max_length:
@@ -416,13 +420,11 @@ def gemini_handler():
             last_period = truncated.rfind('.')
             last_question = truncated.rfind('?')
             last_exclaim = truncated.rfind('!')
-            
             best_cut = max(last_period, last_question, last_exclaim)
             if best_cut > max_length * 0.6:
                 reply = truncated[:best_cut + 1]
             else:
                 reply = truncated.rsplit(' ', 1)[0] + '...'
-        
         return jsonify({'reply': reply})
         
     except Exception as e:
