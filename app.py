@@ -379,35 +379,39 @@ def gemini_handler():
     """Main endpoint for Gemini AI requests."""
     try:
         data = request.json
-        channel_id = request.channel_id
-        user_id = request.user_id
-        
+        channel_id = getattr(request, 'channel_id', None)
+        user_id = getattr(request, 'user_id', None)
+        logger.info(f"[Gemini Handler] Incoming request: channel_id={channel_id}, user_id={user_id}, data={data}")
+
         prompt = data.get('prompt', '')
         command = data.get('command', 'ask')
         style = data.get('style', 'friendly')
-        
+
         # Rate limiting
         if not check_rate_limit(channel_id, user_id):
             logger.error(f"429 Too Many Requests: channel={channel_id}, user={user_id}")
             return jsonify({'error': 'Too many requests. Please wait a moment.'}), 429
-        
+
         # Get channel configuration
         config = channel_configs.get(channel_id, {})
         custom_prompt = config.get('customPrompt')
-        
+
         # Get Gemini model
         model, error = get_gemini_model(channel_id)
         if error:
+            logger.error(f"Gemini model error: {error} for channel_id={channel_id}")
             return jsonify({'error': error}), 400
-        
+
         # Build prompt
         full_prompt = build_prompt(command, prompt, style, custom_prompt)
-        
+        logger.info(f"[Gemini Handler] Built prompt: {full_prompt}")
+
         # Generate response
         try:
             response = model.generate_content(full_prompt)
             # Extract and clean response text
             reply = response.text.strip()
+            logger.info(f"[Gemini Handler] Gemini reply: {reply}")
         except Exception as e:
             logger.error(f"Gemini API quota or error: {e}")
             return jsonify({'reply': "Sorry, the AI quota was exceeded or the service is unavailable. Please try again later! 😅"}), 503
@@ -425,8 +429,10 @@ def gemini_handler():
                 reply = truncated[:best_cut + 1]
             else:
                 reply = truncated.rsplit(' ', 1)[0] + '...'
+            logger.info(f"[Gemini Handler] Truncated reply: {reply}")
+        logger.info(f"[Gemini Handler] Sending response for channel_id={channel_id}, user_id={user_id}")
         return jsonify({'reply': reply})
-        
+
     except Exception as e:
         logger.error(f"Gemini API error: {e}")
         return jsonify({
