@@ -268,7 +268,7 @@ def get_or_create_gemini_model(channel_id):
         return cached['model'], cached['system_prompt'], None
     try:
         genai.configure(api_key=api_key)
-        model_name = config.get('model', 'gemini-3.1-flash-lite')
+        model_name = config.get('model', 'gemini-3.1-flash-lite-preview')
         generation_config = genai.GenerationConfig(
             temperature=config.get('temperature', 0.7),
             max_output_tokens=config.get('maxLength', 300)
@@ -339,7 +339,7 @@ def save_config():
         
         # Validate API key if provided
         api_key = data.get('apiKey')
-        selected_model = 'gemini-3.1-flash-lite'
+        selected_model = 'gemini-3.1-flash-lite-preview'
         
         if api_key:
             # Test the API key with the selected model
@@ -454,7 +454,7 @@ def save_config():
 
         # Validate API key if provided
         api_key = data.get('apiKey')
-        selected_model = 'gemini-3.1-flash-lite'
+        selected_model = 'gemini-3.1-flash-lite-preview'
 
         if api_key:
             # Test the API key with the selected model
@@ -618,7 +618,7 @@ async def bot_generate_response(gemini_api_key: str, prompt: str, command: str, 
     
     try:
         genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-3.1-flash-lite')
+        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
         
         response = await asyncio.to_thread(
             model.generate_content,
