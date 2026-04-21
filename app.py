@@ -12,12 +12,15 @@ Deploy to Render.com:
 5. Start command: gunicorn app:app
 """
 
+
 import os
 import base64
 import json
 import logging
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
+import threading
+import asyncio
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -93,6 +96,8 @@ def save_bot_configs():
         logger.error(f"Error saving bot configs: {e}")
 
 
+
+
 # In-memory storage for channel configurations
 channel_configs = {}
 
@@ -101,6 +106,15 @@ bot_configs = {}
 
 # Rate limiting storage (per channel)
 rate_limits = {}
+
+# Per-channel Gemini model and system prompt cache
+channel_gemini_models = {}  # {channel_id: {'model': model, 'system_prompt': str}}
+
+# Active bot instances: { channel_id: {'thread': thread, 'bot': bot, 'loop': loop} }
+active_bots = {}
+
+# Cooldown tracking per channel: { "channel_id:user_id": datetime }
+bot_user_cooldowns = {}
 
 # Load saved configs on startup
 load_configs()
@@ -232,60 +246,57 @@ def check_rate_limit(channel_id, user_id, limit_seconds=2):
     return True
 
 
-def get_gemini_model(channel_id):
-    """Get or create a Gemini model for the channel."""
-    config = channel_configs.get(channel_id, {})
-    api_key = config.get('apiKey')
-    
-    if not api_key:
-        return None, "API key not configured for this channel"
-    
-    try:
-        genai.configure(api_key=api_key)
-        model_name = config.get('model', 'gemini-3.1-flash-lite')
-        
-        # Configure generation settings
-        generation_config = genai.GenerationConfig(
-            temperature=config.get('temperature', 0.7),
-            max_output_tokens=config.get('maxLength', 300)
-        )
-        
-        model = genai.GenerativeModel(
-            model_name,
-            generation_config=generation_config
-        )
-        
-        return model, None
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize Gemini model: {e}")
-        return None, str(e)
 
-
-def build_prompt(command, user_prompt, style, custom_prompt=None):
-    """Build the full prompt for Gemini based on command type and style."""
-    
-    # Style-based system prompts
+def build_system_prompt(style, custom_prompt=None):
     style_prompts = {
         'friendly': "You are a friendly, helpful AI assistant in a Twitch stream. Keep responses concise, engaging, and fun. Use casual language and occasional emojis.",
         'professional': "You are a professional AI assistant. Provide clear, informative, and accurate responses. Maintain a helpful but formal tone.",
         'funny': "You are a hilarious AI assistant in a Twitch stream. Make people laugh! Be witty, use puns, and keep the energy high. Don't be afraid to be a little silly.",
         'lore': "You are a mystical AI oracle from a fantasy realm. Respond with RPG-style flavor, using archaic language and mystical references. Add dramatic flair to your responses."
     }
-    
-    # Command-specific prompts
+    return custom_prompt if custom_prompt else style_prompts.get(style, style_prompts['friendly'])
+
+def get_or_create_gemini_model(channel_id):
+    """Get or create a cached Gemini model and system prompt for the channel."""
+    config = channel_configs.get(channel_id, {})
+    api_key = config.get('apiKey')
+    if not api_key:
+        return None, None, "API key not configured for this channel"
+    # Check cache
+    cached = channel_gemini_models.get(channel_id)
+    if cached:
+        return cached['model'], cached['system_prompt'], None
+    try:
+        genai.configure(api_key=api_key)
+        model_name = config.get('model', 'gemini-3.1-flash-lite')
+        generation_config = genai.GenerationConfig(
+            temperature=config.get('temperature', 0.7),
+            max_output_tokens=config.get('maxLength', 300)
+        )
+        model = genai.GenerativeModel(
+            model_name,
+            generation_config=generation_config
+        )
+        # Build system prompt
+        style = config.get('responseStyle', 'friendly')
+        custom_prompt = config.get('customPrompt')
+        system_prompt = build_system_prompt(style, custom_prompt)
+        channel_gemini_models[channel_id] = {'model': model, 'system_prompt': system_prompt}
+        return model, system_prompt, None
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini model: {e}")
+        return None, None, str(e)
+
+
+
+def build_user_instruction(command, user_prompt):
     command_prompts = {
         'ask': f"Answer this question helpfully and concisely: {user_prompt}",
         'roast': f"Give a playful, light-hearted roast about '{user_prompt}'. Keep it fun and not actually mean or offensive. Make people laugh, not cry!",
         'joke': "Tell a short, funny joke. It can be about gaming, streaming, technology, or just a good general joke. Keep it clean and appropriate for all audiences.",
         'fact': "Share an interesting, lesser-known fact that would surprise and delight people. Make it fascinating and memorable. Something they might want to share with others."
     }
-    
-    # Build the full prompt
-    system_prompt = custom_prompt if custom_prompt else style_prompts.get(style, style_prompts['friendly'])
-    user_instruction = command_prompts.get(command, command_prompts['ask'])
-    
-    return f"{system_prompt}\n\n{user_instruction}"
+    return command_prompts.get(command, command_prompts['ask'])
 
 
 # ============== API ENDPOINTS ==============
@@ -392,24 +403,21 @@ def gemini_handler():
             logger.error(f"429 Too Many Requests: channel={channel_id}, user={user_id}")
             return jsonify({'error': 'Too many requests. Please wait a moment.'}), 429
 
-        # Get channel configuration
-        config = channel_configs.get(channel_id, {})
-        custom_prompt = config.get('customPrompt')
 
-        # Get Gemini model
-        model, error = get_gemini_model(channel_id)
+        # Get Gemini model and system prompt
+        model, system_prompt, error = get_or_create_gemini_model(channel_id)
         if error:
             logger.error(f"Gemini model error: {error} for channel_id={channel_id}")
             return jsonify({'error': error}), 400
 
-        # Build prompt
-        full_prompt = build_prompt(command, prompt, style, custom_prompt)
-        logger.info(f"[Gemini Handler] Built prompt: {full_prompt}")
+        # Only send user message as input, system prompt is pre-set
+        user_instruction = build_user_instruction(command, prompt)
+        logger.info(f"[Gemini Handler] Using system prompt: {system_prompt}")
+        logger.info(f"[Gemini Handler] User instruction: {user_instruction}")
 
         # Generate response
         try:
-            response = model.generate_content(full_prompt)
-            # Extract and clean response text
+            response = model.generate_content(user_instruction, system_instruction=system_prompt)
             reply = response.text.strip()
             logger.info(f"[Gemini Handler] Gemini reply: {reply}")
         except Exception as e:
@@ -417,9 +425,9 @@ def gemini_handler():
             return jsonify({'reply': "Sorry, the AI quota was exceeded or the service is unavailable. Please try again later! 😅"}), 503
 
         # Ensure response fits within max length
+        config = channel_configs.get(channel_id, {})
         max_length = config.get('maxLength', 450)
         if len(reply) > max_length:
-            # Try to cut at a sentence boundary
             truncated = reply[:max_length]
             last_period = truncated.rfind('.')
             last_question = truncated.rfind('?')
@@ -438,56 +446,60 @@ def gemini_handler():
         return jsonify({
             'reply': "Sorry, I encountered an error. Please try again! 😅"
         }), 500
+def save_config():
+    """Save channel configuration (broadcaster only)."""
+    try:
+        data = request.json
+        channel_id = request.channel_id
 
+        # Validate API key if provided
+        api_key = data.get('apiKey')
+        selected_model = 'gemini-3.1-flash-lite'
 
-@app.route('/api/status', methods=['GET'])
-def status():
-    """Public status endpoint."""
-    return jsonify({
-        'status': 'online',
-        'service': 'Gemini Stream Assistant',
-        'version': '1.0.0',
-        'active_bots': len(active_bots)
-    })
+        if api_key:
+            # Test the API key with the selected model
+            try:
+                genai.configure(api_key=api_key)
+                test_model = genai.GenerativeModel(selected_model)
+                test_model.generate_content("Hi", generation_config=genai.GenerationConfig(max_output_tokens=10))
+            except Exception as e:
+                return jsonify({'error': f'Invalid API key or model: {str(e)}'}), 400
 
+        # Store configuration
+        if channel_id not in channel_configs:
+            channel_configs[channel_id] = {}
 
-@app.route('/', methods=['GET'])
-def root():
-    """Root endpoint for health checks."""
-    return jsonify({
-        'status': 'online',
-        'service': 'Gemini Stream Assistant',
-        'endpoints': ['/api/status', '/api/health', '/api/config', '/api/gemini', '/api/bot/config'],
-        'active_bots': len(active_bots)
-    })
+        # Update config (only update provided fields)
+        if api_key:
+            channel_configs[channel_id]['apiKey'] = api_key
+        if 'model' in data:
+            channel_configs[channel_id]['model'] = data['model']
+        if 'temperature' in data:
+            channel_configs[channel_id]['temperature'] = data['temperature']
+        if 'maxLength' in data:
+            channel_configs[channel_id]['maxLength'] = data['maxLength']
+        if 'responseStyle' in data:
+            channel_configs[channel_id]['responseStyle'] = data['responseStyle']
+        if 'customPrompt' in data:
+            channel_configs[channel_id]['customPrompt'] = data['customPrompt']
 
+        # Persist to file
+        save_channel_configs()
 
-# Error handlers
-@app.errorhandler(404)
-def not_found(e):
-    return jsonify({'error': 'Endpoint not found'}), 404
+        # Refresh Gemini model cache for this channel
+        if channel_id in channel_gemini_models:
+            del channel_gemini_models[channel_id]
 
+        logger.info(f"Configuration saved for channel {channel_id}")
 
-@app.errorhandler(500)
-def server_error(e):
-    return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({
+            'success': True,
+            'message': 'Configuration saved successfully'
+        })
 
-
-# ============== MULTI-CHANNEL TWITCH CHAT BOT ==============
-import threading
-import asyncio
-from datetime import timedelta
-
-# Active bot instances: { channel_id: {'thread': thread, 'bot': bot, 'loop': loop} }
-active_bots = {}
-
-# Cooldown tracking per channel: { "channel_id:user_id": datetime }
-bot_user_cooldowns = {}
-
-
-@app.route('/api/bot/config', methods=['POST'])
-@verify_twitch_jwt
-@require_broadcaster
+    except Exception as e:
+        logger.error(f"Error saving config: {e}")
+        return jsonify({'error': str(e)}), 500
 def save_bot_config():
     """Save bot configuration for a channel (broadcaster only)."""
     try:
