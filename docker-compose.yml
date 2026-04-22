@@ -50,11 +50,10 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - caddy_certs:/etc/letsencrypt:ro   # mount if using certbot
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - frontend
       - backend
 
 volumes:
   db_data:
-  caddy_certs:
