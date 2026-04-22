@@ -500,6 +500,11 @@ def save_config():
     except Exception as e:
         logger.error(f"Error saving config: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/bot/config', methods=['POST'])
+@verify_twitch_jwt
+@require_broadcaster
 def save_bot_config():
     """Save bot configuration for a channel (broadcaster only)."""
     try:
