@@ -107,8 +107,9 @@ bot_configs = {}
 # Rate limiting storage (per channel)
 rate_limits = {}
 
-# Per-channel Gemini model and system prompt cache
+# Per-channel Gemini model cache (system prompt baked into model instance)
 channel_gemini_models = {}  # {channel_id: {'model': model, 'system_prompt': str}}
+bot_gemini_models = {}      # {channel_id: {'model': model}}
 
 # Active bot instances: { channel_id: {'thread': thread, 'bot': bot, 'loop': loop} }
 active_bots = {}
@@ -273,14 +274,14 @@ def get_or_create_gemini_model(channel_id):
             temperature=config.get('temperature', 0.7),
             max_output_tokens=config.get('maxLength', 300)
         )
-        model = genai.GenerativeModel(
-            model_name,
-            generation_config=generation_config
-        )
-        # Build system prompt
         style = config.get('responseStyle', 'friendly')
         custom_prompt = config.get('customPrompt')
         system_prompt = build_system_prompt(style, custom_prompt)
+        model = genai.GenerativeModel(
+            model_name,
+            generation_config=generation_config,
+            system_instruction=system_prompt
+        )
         channel_gemini_models[channel_id] = {'model': model, 'system_prompt': system_prompt}
         return model, system_prompt, None
     except Exception as e:
@@ -417,7 +418,7 @@ def gemini_handler():
 
         # Generate response
         try:
-            response = model.generate_content(user_instruction, system_instruction=system_prompt)
+            response = model.generate_content(user_instruction)
             reply = response.text.strip()
             logger.info(f"[Gemini Handler] Gemini reply: {reply}")
         except Exception as e:
@@ -486,9 +487,9 @@ def save_config():
         # Persist to file
         save_channel_configs()
 
-        # Refresh Gemini model cache for this channel
-        if channel_id in channel_gemini_models:
-            del channel_gemini_models[channel_id]
+        # Refresh Gemini model caches for this channel
+        channel_gemini_models.pop(channel_id, None)
+        bot_gemini_models.pop(channel_id, None)
 
         logger.info(f"Configuration saved for channel {channel_id}")
 
@@ -534,7 +535,10 @@ def save_bot_config():
         
         # Persist to file
         save_bot_configs()
-        
+
+        # Invalidate bot model cache so it picks up the new API key / config
+        bot_gemini_models.pop(channel_id, None)
+
         logger.info(f"Bot config saved for channel {channel_id}, enabled={enabled}")
         
         # Start or stop bot based on config
@@ -588,50 +592,40 @@ def bot_get_remaining_cooldown(channel_id: str, user_id: str) -> int:
     return max(0, int(remaining))
 
 
+def get_or_create_bot_gemini_model(channel_id: str, gemini_api_key: str):
+    """Get or create a cached Gemini model for the bot with system prompt baked in."""
+    cached = bot_gemini_models.get(channel_id)
+    if cached:
+        return cached['model']
+    config = channel_configs.get(channel_id, {})
+    style = config.get('responseStyle', 'friendly')
+    custom_prompt = config.get('customPrompt')
+    system_prompt = build_system_prompt(style, custom_prompt)
+    genai.configure(api_key=gemini_api_key)
+    model = genai.GenerativeModel(
+        'gemini-3.1-flash-lite-preview',
+        generation_config=genai.GenerationConfig(max_output_tokens=200, temperature=0.8),
+        system_instruction=system_prompt
+    )
+    bot_gemini_models[channel_id] = {'model': model}
+    return model
+
+
 async def bot_generate_response(gemini_api_key: str, prompt: str, command: str, channel_id: str = None) -> str:
     """Generate a response using Gemini AI for the bot."""
-    
-    # Get custom config from channel if available
-    custom_prompt = None
-    response_style = 'friendly'
-    if channel_id and channel_id in channel_configs:
-        config = channel_configs[channel_id]
-        custom_prompt = config.get('customPrompt')
-        response_style = config.get('responseStyle', 'friendly')
-    
-    style_prompts = {
-        'friendly': "You are a friendly, fun AI assistant in a Twitch chat. Keep responses SHORT (under 400 chars), engaging, and use casual language.",
-        'professional': "You are a professional AI assistant in a Twitch chat. Provide clear, informative responses under 400 chars.",
-        'funny': "You are a hilarious AI assistant in a Twitch chat. Make people laugh! Keep responses under 400 chars.",
-        'lore': "You are an AI from a fantasy RPG world in a Twitch chat. Respond with epic flavor, under 400 chars."
-    }
-    
-    style_prompt = style_prompts.get(response_style, style_prompts['friendly'])
-    
-    # Add custom prompt if set
-    if custom_prompt:
-        style_prompt = f"{style_prompt}\n\nAdditional instructions: {custom_prompt}"
-    
     command_prompts = {
         'ask': f"Answer this concisely: {prompt}",
         'roast': f"Give a playful, light-hearted roast about '{prompt}'. Keep it fun, NOT mean. Make people laugh!",
         'joke': "Tell a short, funny joke. Gaming/streaming related is great, but any clean joke works.",
         'fact': "Share one interesting, surprising fact. Make it memorable!"
     }
-    
-    full_prompt = f"{style_prompt}\n\n{command_prompts.get(command, command_prompts['ask'])}"
-    
+    user_message = command_prompts.get(command, command_prompts['ask'])
+
     try:
-        genai.configure(api_key=gemini_api_key)
-        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
-        
+        model = get_or_create_bot_gemini_model(channel_id, gemini_api_key)
         response = await asyncio.to_thread(
             model.generate_content,
-            full_prompt,
-            generation_config=genai.GenerationConfig(
-                max_output_tokens=200,
-                temperature=0.8
-            )
+            user_message
         )
         
         reply = response.text.strip()
