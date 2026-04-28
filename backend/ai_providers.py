@@ -43,6 +43,7 @@ def invalidate_cache(channel_id: str):
 def _get_or_create_gemini_model(channel_id: str, api_key: str, model_name: str,
                                  system_prompt: str, temperature: float, max_tokens: int):
     import google.generativeai as genai
+    from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
     cache_key = f"{channel_id}:panel"
     if cache_key in _model_cache:
@@ -55,7 +56,13 @@ def _get_or_create_gemini_model(channel_id: str, api_key: str, model_name: str,
             temperature=temperature,
             max_output_tokens=max_tokens,
         ),
-        system_instruction=system_prompt,
+        system_instruction=system_prompt or None,
+        safety_settings={
+            HarmCategory.HARM_CATEGORY_HARASSMENT:        HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH:       HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        },
     )
     _model_cache[cache_key] = model
     return model
@@ -89,7 +96,11 @@ async def _gemini(channel_id, api_key, model_name, system_prompt,
         channel_id, api_key, model_name, system_prompt, temperature, max_tokens
     )
     response = await asyncio.to_thread(model.generate_content, user_message)
-    return response.text.strip()
+    candidate = response.candidates[0] if response.candidates else None
+    if not candidate or not candidate.content.parts:
+        finish = candidate.finish_reason if candidate else 'unknown'
+        raise ValueError(f'Gemini returned no content (finish_reason={finish})')
+    return candidate.content.parts[0].text.strip()
 
 
 async def _claude(api_key, model_name, system_prompt, user_message,
