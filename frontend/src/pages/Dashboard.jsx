@@ -9,8 +9,10 @@ export default function Dashboard({ user, onLogout }) {
   const [loading, setLoading]         = useState(false)
   const [showConfig, setShowConfig]   = useState(false)
   const [error, setError]             = useState('')
+  const [toast, setToast]             = useState(null)
   const [countdown, setCountdown]     = useState(null)
   const timerRef                      = useRef(null)
+  const toastTimerRef                 = useRef(null)
 
   useEffect(() => {
     fetchStatus()
@@ -44,18 +46,23 @@ export default function Dashboard({ user, onLogout }) {
     }
   }
 
+  function showToast(message, type = 'error') {
+    clearTimeout(toastTimerRef.current)
+    setToast({ message, type })
+    toastTimerRef.current = setTimeout(() => setToast(null), 5000)
+  }
+
   async function toggleBot() {
     setLoading(true)
     setError('')
+    const action = botStatus?.running ? 'stop' : 'start'
     try {
-      if (botStatus?.running) {
-        await api.post('/api/bot/stop')
-      } else {
-        await api.post('/api/bot/start')
-      }
+      await api.post(`/api/bot/${action}`)
       await fetchStatus()
     } catch (e) {
-      setError(e.message)
+      const msg = e.message || `Failed to ${action} bot`
+      setError(msg)
+      showToast(msg)
     }
     setLoading(false)
   }
@@ -167,6 +174,13 @@ export default function Dashboard({ user, onLogout }) {
           onClose={() => setShowConfig(false)}
           onSaved={() => { setShowConfig(false); fetchStatus() }}
         />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 bg-red-900 border border-red-600 text-red-200 text-sm rounded-xl px-4 py-3 shadow-lg max-w-sm animate-fade-in">
+          <span className="flex-1">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="text-red-400 hover:text-white leading-none mt-0.5">✕</button>
+        </div>
       )}
     </div>
   )
